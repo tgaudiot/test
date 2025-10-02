@@ -1,0 +1,34 @@
+name: API Orchestrator with Manual Approval
+
+on:
+  workflow_dispatch:   # start manually (you can also add push: or schedule:)
+
+jobs:
+  call-api-a:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call API A
+        run: |
+          echo "🚀 Calling API A..."
+          curl -s -X POST https://api.example.com/start \
+            -H "Authorization: Bearer ${{ secrets.API_TOKEN }}" \
+            -d '{"task":"start"}'
+
+  wait-for-approval:
+    needs: call-api-a
+    runs-on: ubuntu-latest
+    environment: production   # 👈 requires manual approval (set up in GitHub)
+    steps:
+      - name: Manual gate
+        run: echo "⏸ Waiting for manual approval before continuing..."
+
+  call-api-b:
+    needs: wait-for-approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call API B
+        run: |
+          echo "🚀 Calling API B..."
+          curl -s -X POST https://api.example.com/continue \
+            -H "Authorization: Bearer ${{ secrets.API_TOKEN }}" \
+            -d '{"task":"continue"}'
