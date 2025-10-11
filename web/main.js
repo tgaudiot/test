@@ -8,6 +8,22 @@ const originAirportInput = document.querySelector('#origin-airport-input');
 const flightHostInput = document.querySelector('#flight-host-input');
 const flightKeyInput = document.querySelector('#flight-key-input');
 const sncfKeyInput = document.querySelector('#sncf-key-input');
+const copernicusUsernameInput = document.querySelector('#copernicus-username-input');
+const copernicusPasswordInput = document.querySelector('#copernicus-password-input');
+const copernicusProductInput = document.querySelector('#copernicus-product-input');
+const copernicusVariablesInput = document.querySelector('#copernicus-variables-input');
+const copernicusEndpointInput = document.querySelector('#copernicus-endpoint-input');
+const copernicusHoursInput = document.querySelector('#copernicus-hours-input');
+
+const COPERNICUS_DEFAULT_POINT_URL = 'https://nrt.cmems-du.eu/api/v1/forecast/point';
+const COPERNICUS_DEFAULT_PRODUCT_ID = 'GLOBAL_ANALYSIS_FORECAST_WAV_001_027-TDS';
+const COPERNICUS_DEFAULT_VARIABLES = [
+  'significant_wave_height',
+  'wind_speed',
+  'wind_from_direction',
+  'sea_surface_temperature',
+];
+const COPERNICUS_DEFAULT_RANGE_HOURS = 96;
 
 const defaultSurfSpots = [
   {
@@ -103,6 +119,14 @@ const defaultSettings = {
   sncfApi: {
     key: '',
   },
+  copernicusApi: {
+    username: '',
+    password: '',
+    productId: COPERNICUS_DEFAULT_PRODUCT_ID,
+    variables: COPERNICUS_DEFAULT_VARIABLES.join(','),
+    pointUrl: COPERNICUS_DEFAULT_POINT_URL,
+    rangeHours: COPERNICUS_DEFAULT_RANGE_HOURS,
+  },
 };
 
 function loadSettings() {
@@ -123,6 +147,16 @@ function loadSettings() {
       },
       sncfApi: {
         key: parsed?.sncfApi?.key ?? defaultSettings.sncfApi.key,
+      },
+      copernicusApi: {
+        username: parsed?.copernicusApi?.username ?? defaultSettings.copernicusApi.username,
+        password: parsed?.copernicusApi?.password ?? defaultSettings.copernicusApi.password,
+        productId: parsed?.copernicusApi?.productId ?? defaultSettings.copernicusApi.productId,
+        variables: parsed?.copernicusApi?.variables ?? defaultSettings.copernicusApi.variables,
+        pointUrl: parsed?.copernicusApi?.pointUrl ?? defaultSettings.copernicusApi.pointUrl,
+        rangeHours: Number.isFinite(Number(parsed?.copernicusApi?.rangeHours))
+          ? Number(parsed.copernicusApi.rangeHours)
+          : defaultSettings.copernicusApi.rangeHours,
       },
     };
   } catch (error) {
@@ -155,9 +189,306 @@ function applySettingsToInputs() {
   if (sncfKeyInput) {
     sncfKeyInput.value = settings.sncfApi.key;
   }
+  if (copernicusUsernameInput) {
+    copernicusUsernameInput.value = settings.copernicusApi.username;
+  }
+  if (copernicusPasswordInput) {
+    copernicusPasswordInput.value = settings.copernicusApi.password;
+  }
+  if (copernicusProductInput) {
+    copernicusProductInput.value = settings.copernicusApi.productId;
+  }
+  if (copernicusVariablesInput) {
+    copernicusVariablesInput.value = settings.copernicusApi.variables;
+  }
+  if (copernicusEndpointInput) {
+    copernicusEndpointInput.value = settings.copernicusApi.pointUrl;
+  }
+  if (copernicusHoursInput) {
+    copernicusHoursInput.value = settings.copernicusApi.rangeHours;
+  }
 }
 
 applySettingsToInputs();
+
+function parseCopernicusVariables(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : `${item}`.trim()))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function buildCopernicusConfig() {
+  const config = settings?.copernicusApi ?? defaultSettings.copernicusApi;
+  const username = config?.username?.trim?.() || '';
+  const password = config?.password?.trim?.() || '';
+  const productId = config?.productId?.trim?.() || COPERNICUS_DEFAULT_PRODUCT_ID;
+  const pointUrl = config?.pointUrl?.trim?.() || COPERNICUS_DEFAULT_POINT_URL;
+  const variablesList = parseCopernicusVariables(config?.variables);
+  const rangeCandidate = Number.parseFloat(config?.rangeHours);
+  const rangeHours = Number.isFinite(rangeCandidate) && rangeCandidate > 0
+    ? rangeCandidate
+    : COPERNICUS_DEFAULT_RANGE_HOURS;
+
+  return {
+    username,
+    password,
+    productId,
+    pointUrl,
+    variables: variablesList.length ? variablesList : [...COPERNICUS_DEFAULT_VARIABLES],
+    rangeHours,
+  };
+}
+
+function copernicusValueToNumber(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function mapCopernicusValue(key, value) {
+  const numeric = copernicusValueToNumber(value);
+  if (numeric == null) return { key: null, value: null };
+
+  const lowered = key.toLowerCase();
+  if (
+    lowered.includes('significant_wave_height') ||
+    lowered === 'vhm0' ||
+    lowered === 'wave_height' ||
+    lowered === 'swh'
+  ) {
+    return { key: 'wave', value: numeric };
+  }
+
+  if (
+    lowered.includes('wind_speed') ||
+    lowered === 'ff' ||
+    lowered === 'uwnd' ||
+    lowered === 'vwnd'
+  ) {
+    return { key: 'wind', value: numeric };
+  }
+
+  if (
+    lowered.includes('wind_from_direction') ||
+    lowered.includes('wind_direction') ||
+    lowered === 'vmdr'
+  ) {
+    return { key: 'windDir', value: numeric };
+  }
+
+  if (
+    lowered.includes('sea_surface_temperature') ||
+    lowered.includes('sea_water_temperature') ||
+    lowered === 'sst' ||
+    lowered === 'temperature'
+  ) {
+    const adjusted = numeric > 200 ? numeric - 273.15 : numeric;
+    return { key: 'temp', value: adjusted };
+  }
+
+  return { key: null, value: null };
+}
+
+function coerceCopernicusTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{8}T\d{6}$/.test(trimmed)) {
+      const iso = `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}T${trimmed.slice(9, 11)}:${trimmed.slice(
+        11,
+        13
+      )}:${trimmed.slice(13)}`;
+      const parsed = new Date(iso);
+      return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  return null;
+}
+
+function ensureCopernicusRecord(map, isoTime) {
+  const existing = map.get(isoTime);
+  if (existing) return existing;
+  const record = { time: isoTime, wave: null, wind: null, windDir: null, temp: null };
+  map.set(isoTime, record);
+  return record;
+}
+
+function consumeCopernicusVariable(map, name, descriptor) {
+  if (!descriptor) return;
+  const times = Array.isArray(descriptor?.time)
+    ? descriptor.time
+    : Array.isArray(descriptor?.times)
+    ? descriptor.times
+    : Array.isArray(descriptor?.datetime)
+    ? descriptor.datetime
+    : Array.isArray(descriptor?.dates)
+    ? descriptor.dates
+    : Array.isArray(descriptor?.timestamps)
+    ? descriptor.timestamps
+    : Array.isArray(descriptor?.records)
+    ? descriptor.records
+    : [];
+
+  const values = Array.isArray(descriptor?.value)
+    ? descriptor.value
+    : Array.isArray(descriptor?.values)
+    ? descriptor.values
+    : Array.isArray(descriptor?.data)
+    ? descriptor.data
+    : [];
+
+  const length = Math.min(times.length, values.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const timeCandidate =
+      times[index]?.time ?? times[index]?.datetime ?? times[index]?.date ?? times[index]?.timestamp ?? times[index];
+    const isoTime = coerceCopernicusTime(timeCandidate);
+    if (!isoTime) continue;
+
+    const rawValue = values[index]?.value ?? values[index];
+    const { key, value } = mapCopernicusValue(name, rawValue);
+    if (!key) continue;
+
+    const record = ensureCopernicusRecord(map, isoTime);
+    record[key] = value;
+  }
+}
+
+function consumeCopernicusArray(map, entry) {
+  if (!entry) return;
+  const time =
+    entry?.time ?? entry?.datetime ?? entry?.date ?? entry?.timestamp ?? entry?.t ?? entry?.Time ?? entry?.TIME ?? null;
+  const isoTime = coerceCopernicusTime(time);
+  if (!isoTime) return;
+
+  const record = ensureCopernicusRecord(map, isoTime);
+  Object.entries(entry).forEach(([name, value]) => {
+    if (['time', 'datetime', 'date', 'timestamp', 't', 'Time', 'TIME'].includes(name)) return;
+    const { key, value: numeric } = mapCopernicusValue(name, value);
+    if (key) {
+      record[key] = numeric;
+    }
+  });
+}
+
+function normaliseCopernicusPayload(payload) {
+  const records = new Map();
+
+  if (Array.isArray(payload?.data)) {
+    payload.data.forEach((entry) => consumeCopernicusArray(records, entry));
+  }
+
+  if (Array.isArray(payload?.records)) {
+    payload.records.forEach((entry) => consumeCopernicusArray(records, entry));
+  }
+
+  if (payload?.variables && typeof payload.variables === 'object') {
+    Object.entries(payload.variables).forEach(([name, descriptor]) => {
+      consumeCopernicusVariable(records, name, descriptor);
+    });
+  }
+
+  if (payload?.result && typeof payload.result === 'object') {
+    Object.entries(payload.result).forEach(([name, descriptor]) => {
+      consumeCopernicusVariable(records, name, descriptor);
+    });
+  }
+
+  const entries = Array.from(records.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  const time = [];
+  const wave = [];
+  const wind = [];
+  const windDir = [];
+  const temp = [];
+
+  entries.forEach((entry) => {
+    const timestamp = coerceCopernicusTime(entry.time);
+    if (!timestamp) return;
+    time.push(timestamp);
+    wave.push(Number.isFinite(entry.wave) ? entry.wave : null);
+    wind.push(Number.isFinite(entry.wind) ? entry.wind : null);
+    windDir.push(Number.isFinite(entry.windDir) ? entry.windDir : null);
+    temp.push(Number.isFinite(entry.temp) ? entry.temp : null);
+  });
+
+  return {
+    source: 'copernicus',
+    hourly: {
+      time,
+      wave_height: wave,
+      wind_speed_10m: wind,
+      wind_direction_10m: windDir,
+      temperature_2m: temp,
+    },
+  };
+}
+
+async function fetchCopernicusForecastDirect(spot, config) {
+  if (!config?.username || !config?.password) {
+    throw new Error('Missing Copernicus credentials.');
+  }
+
+  const url = new URL(config.pointUrl || COPERNICUS_DEFAULT_POINT_URL);
+  url.searchParams.set('latitude', spot.latitude.toString());
+  url.searchParams.set('longitude', spot.longitude.toString());
+  if (config.productId) {
+    url.searchParams.set('product_id', config.productId);
+  }
+  if (Array.isArray(config.variables) && config.variables.length) {
+    url.searchParams.set('variables', config.variables.join(','));
+  }
+  const range = Number.isFinite(config.rangeHours) && config.rangeHours > 0 ? config.rangeHours : COPERNICUS_DEFAULT_RANGE_HOURS;
+  const start = new Date();
+  const end = new Date(start.getTime() + range * 60 * 60 * 1000);
+  url.searchParams.set('start_datetime', start.toISOString());
+  url.searchParams.set('end_datetime', end.toISOString());
+  url.searchParams.set('temporal_resolution', 'PT1H');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Basic ${btoa(`${config.username}:${config.password}`)}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    const label = `${response.status} ${response.statusText}`.trim();
+    throw new Error(
+      text
+        ? `Copernicus forecast failed: ${text.slice(0, 120)}`
+        : `Copernicus forecast failed: ${label}`
+    );
+  }
+
+  const payload = await response.json();
+  const normalised = normaliseCopernicusPayload(payload);
+  if (!normalised?.hourly?.time?.length) {
+    throw new Error('Copernicus forecast did not return any data.');
+  }
+  return normalised;
+}
 
 const spotState = new Map();
 let updateSequence = 0;
@@ -217,24 +548,63 @@ function estimateTravel(distanceKm) {
 }
 
 async function fetchForecast(spot) {
-  const backendParams = new URLSearchParams({
+  const copernicusConfig = buildCopernicusConfig();
+  const hasCopernicusCredentials = Boolean(copernicusConfig.username && copernicusConfig.password);
+
+  const backendPayload = {
     spotId: spot.id ?? '',
-    lat: spot.latitude,
-    lon: spot.longitude,
-  });
+    latitude: spot.latitude,
+    longitude: spot.longitude,
+  };
+
+  if (hasCopernicusCredentials) {
+    backendPayload.copernicus = {
+      username: copernicusConfig.username,
+      password: copernicusConfig.password,
+      productId: copernicusConfig.productId,
+      variables: copernicusConfig.variables.join(','),
+      pointUrl: copernicusConfig.pointUrl,
+      rangeHours: copernicusConfig.rangeHours,
+    };
+  }
+
+  let copernicusFallbackError = null;
+
   try {
-    const backendResponse = await fetch(`/api/forecast?${backendParams.toString()}`);
+    const backendResponse = await fetch('/api/forecast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backendPayload),
+    });
+
+    if (backendResponse.status === 404) {
+      const error = new Error('Forecast backend not available.');
+      error.code = 'BACKEND_MISSING';
+      throw error;
+    }
+
     if (backendResponse.ok) {
       return backendResponse.json();
     }
-    if (backendResponse.status && backendResponse.status !== 404) {
-      const errorPayload = await backendResponse.json().catch(async () => ({
-        error: await backendResponse.text().catch(() => 'Forecast request failed'),
-      }));
-      throw new Error(errorPayload.error || 'Unable to fetch forecast data');
-    }
+
+    const errorPayload = await backendResponse.json().catch(async () => ({
+      error: await backendResponse.text().catch(() => 'Forecast request failed'),
+    }));
+    throw new Error(errorPayload.error || 'Unable to fetch forecast data');
   } catch (error) {
-    console.warn('Falling back to direct forecast fetch', error);
+    if (error?.code !== 'BACKEND_MISSING' && error?.name !== 'TypeError') {
+      throw error;
+    }
+    console.warn('Forecast backend unavailable, attempting client-side fallback', error);
+  }
+
+  if (hasCopernicusCredentials) {
+    try {
+      return await fetchCopernicusForecastDirect(spot, copernicusConfig);
+    } catch (error) {
+      copernicusFallbackError = error;
+      console.warn('Copernicus forecast failed, falling back to Open-Meteo', error);
+    }
   }
 
   const params = new URLSearchParams({
@@ -250,10 +620,32 @@ async function fetchForecast(spot) {
   );
 
   if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (copernicusFallbackError) {
+      throw new Error(
+        `Copernicus and Open-Meteo requests failed. ${copernicusFallbackError.message || ''} ${text.slice(0, 120)}`.trim()
+      );
+    }
     throw new Error('Unable to fetch forecast data');
   }
 
-  return response.json();
+  const payload = await response.json();
+  const meta = payload && typeof payload.meta === 'object' && !Array.isArray(payload.meta) ? payload.meta : {};
+  if (copernicusFallbackError) {
+    payload.meta = {
+      ...meta,
+      fallback: 'open-meteo',
+      copernicusError: copernicusFallbackError.message ?? 'Copernicus forecast failed.',
+    };
+    payload.source = payload.source || 'open-meteo-fallback';
+  } else if (meta !== payload.meta) {
+    payload.meta = meta;
+    payload.source = payload.source || 'open-meteo';
+  } else {
+    payload.source = payload.source || 'open-meteo';
+  }
+
+  return payload;
 }
 
 function summariseForecast(data) {
@@ -272,10 +664,10 @@ function summariseForecast(data) {
     }
     byDay[key].push({
       date,
-      wave: wave_height[index],
-      wind: wind_speed_10m[index],
-      windDir: wind_direction_10m[index],
-      temp: temperature_2m[index],
+      wave: Number.isFinite(wave_height?.[index]) ? wave_height[index] : null,
+      wind: Number.isFinite(wind_speed_10m?.[index]) ? wind_speed_10m[index] : null,
+      windDir: Number.isFinite(wind_direction_10m?.[index]) ? wind_direction_10m[index] : null,
+      temp: Number.isFinite(temperature_2m?.[index]) ? temperature_2m[index] : null,
     });
   });
 
@@ -285,26 +677,37 @@ function summariseForecast(data) {
       const displayDate = new Date(key);
       const average = values.reduce(
         (acc, value) => {
-          acc.wave += value.wave;
-          acc.wind += value.wind;
-          acc.windDir += value.windDir;
-          acc.temp += value.temp;
+          if (Number.isFinite(value.wave)) {
+            acc.wave += value.wave;
+            acc.waveCount += 1;
+          }
+          if (Number.isFinite(value.wind)) {
+            acc.wind += value.wind;
+            acc.windCount += 1;
+          }
+          if (Number.isFinite(value.windDir)) {
+            acc.windDir += value.windDir;
+            acc.windDirCount += 1;
+          }
+          if (Number.isFinite(value.temp)) {
+            acc.temp += value.temp;
+            acc.tempCount += 1;
+          }
           return acc;
         },
-        { wave: 0, wind: 0, windDir: 0, temp: 0 }
+        { wave: 0, waveCount: 0, wind: 0, windCount: 0, windDir: 0, windDirCount: 0, temp: 0, tempCount: 0 }
       );
 
-      const length = values.length || 1;
       summary.push({
         date: displayDate.toLocaleDateString(undefined, {
           weekday: 'short',
           month: 'short',
           day: 'numeric',
         }),
-        wave: average.wave / length,
-        wind: average.wind / length,
-        windDir: average.windDir / length,
-        temp: average.temp / length,
+        wave: average.waveCount ? average.wave / average.waveCount : null,
+        wind: average.windCount ? average.wind / average.windCount : null,
+        windDir: average.windDirCount ? average.windDir / average.windDirCount : null,
+        temp: average.tempCount ? average.temp / average.tempCount : null,
       });
     });
 
@@ -945,9 +1348,19 @@ function renderSpotCard(spot, state = {}) {
     list.className = 'forecast-list';
     state.forecast.forEach((entry) => {
       const p = document.createElement('p');
-      p.innerHTML = `<strong>${entry.date}</strong> · Wave ${entry.wave.toFixed(1)} m · Wind ${entry.wind.toFixed(
-        1
-      )} m/s · Temp ${entry.temp.toFixed(0)} °C`;
+      const waveLabel = Number.isFinite(entry.wave) ? `${entry.wave.toFixed(1)} m` : '–';
+      const windSpeedLabel = Number.isFinite(entry.wind) ? `${entry.wind.toFixed(1)} m/s` : null;
+      const windDirLabel = Number.isFinite(entry.windDir) ? `${entry.windDir.toFixed(0)}°` : null;
+      let windLabel = '–';
+      if (windSpeedLabel && windDirLabel) {
+        windLabel = `${windSpeedLabel} (${windDirLabel})`;
+      } else if (windSpeedLabel) {
+        windLabel = windSpeedLabel;
+      } else if (windDirLabel) {
+        windLabel = windDirLabel;
+      }
+      const tempLabel = Number.isFinite(entry.temp) ? `${entry.temp.toFixed(0)} °C` : '–';
+      p.innerHTML = `<strong>${entry.date}</strong> · Wave ${waveLabel} · Wind ${windLabel} · Temp ${tempLabel}`;
       list.appendChild(p);
     });
     forecastEl.innerHTML = '<h4>Next days</h4>';
@@ -1253,6 +1666,47 @@ sncfKeyInput?.addEventListener('change', (event) => {
   if (userLocation) {
     updateSpots();
   }
+});
+
+copernicusUsernameInput?.addEventListener('change', (event) => {
+  settings.copernicusApi.username = event.target.value.trim();
+  persistSettings();
+  updateSpots();
+});
+
+copernicusPasswordInput?.addEventListener('change', (event) => {
+  settings.copernicusApi.password = event.target.value.trim();
+  persistSettings();
+  updateSpots();
+});
+
+copernicusProductInput?.addEventListener('change', (event) => {
+  settings.copernicusApi.productId = event.target.value.trim() || COPERNICUS_DEFAULT_PRODUCT_ID;
+  copernicusProductInput.value = settings.copernicusApi.productId;
+  persistSettings();
+  updateSpots();
+});
+
+copernicusVariablesInput?.addEventListener('change', (event) => {
+  settings.copernicusApi.variables = event.target.value.trim();
+  persistSettings();
+  updateSpots();
+});
+
+copernicusEndpointInput?.addEventListener('change', (event) => {
+  settings.copernicusApi.pointUrl = event.target.value.trim() || COPERNICUS_DEFAULT_POINT_URL;
+  copernicusEndpointInput.value = settings.copernicusApi.pointUrl;
+  persistSettings();
+  updateSpots();
+});
+
+copernicusHoursInput?.addEventListener('change', (event) => {
+  const value = Number.parseFloat(event.target.value);
+  const sanitised = Number.isFinite(value) && value > 0 ? value : COPERNICUS_DEFAULT_RANGE_HOURS;
+  settings.copernicusApi.rangeHours = sanitised;
+  copernicusHoursInput.value = sanitised;
+  persistSettings();
+  updateSpots();
 });
 
 // render initial placeholder cards

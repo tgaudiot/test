@@ -5,6 +5,7 @@ import { surfSpots, findSpotById } from './spots.js';
 import {
   normaliseFlightOffers,
   normaliseSncfJourneys,
+  normaliseCopernicusForecast,
   formatFlightDate,
   formatSncfDatetime,
 } from './normalisers.js';
@@ -16,6 +17,112 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webDir = path.join(__dirname, '..', 'web');
+
+const COPERNICUS_DEFAULT_ENDPOINT =
+  process.env.COPERNICUS_POINT_ENDPOINT?.trim() || 'https://nrt.cmems-du.eu/api/v1/forecast/point';
+const COPERNICUS_DEFAULT_PRODUCT_ID =
+  process.env.COPERNICUS_PRODUCT_ID?.trim() || 'GLOBAL_ANALYSIS_FORECAST_WAV_001_027-TDS';
+const COPERNICUS_DEFAULT_VARIABLES = (process.env.COPERNICUS_VARIABLES || '')
+  .split(',')
+  .map((part) => part.trim())
+  .filter(Boolean);
+const COPERNICUS_DEFAULT_RANGE_HOURS = Number.isFinite(Number.parseFloat(process.env.COPERNICUS_RANGE_HOURS))
+  ? Number.parseFloat(process.env.COPERNICUS_RANGE_HOURS)
+  : 96;
+const COPERNICUS_USERNAME = process.env.COPERNICUS_USERNAME?.trim?.() || '';
+const COPERNICUS_PASSWORD = process.env.COPERNICUS_PASSWORD?.trim?.() || '';
+
+const COPERNICUS_FALLBACK_VARIABLES = [
+  'significant_wave_height',
+  'wind_speed',
+  'wind_from_direction',
+  'sea_surface_temperature',
+];
+
+function parseCopernicusVariables(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : `${item}`.trim()))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function resolveCopernicusConfig(requested = {}) {
+  const username = requested?.username?.trim?.() || COPERNICUS_USERNAME;
+  const password = requested?.password?.trim?.() || COPERNICUS_PASSWORD;
+  const productId = requested?.productId?.trim?.() || COPERNICUS_DEFAULT_PRODUCT_ID;
+  const endpoint = requested?.pointUrl?.trim?.() || COPERNICUS_DEFAULT_ENDPOINT;
+  const variables = parseCopernicusVariables(
+    requested?.variables?.length ? requested.variables : COPERNICUS_DEFAULT_VARIABLES
+  );
+  const rangeCandidate = Number.parseFloat(requested?.rangeHours);
+  const rangeHours = Number.isFinite(rangeCandidate) && rangeCandidate > 0
+    ? rangeCandidate
+    : COPERNICUS_DEFAULT_RANGE_HOURS;
+
+  return {
+    username,
+    password,
+    productId,
+    endpoint,
+    variables: variables.length ? variables : [...COPERNICUS_FALLBACK_VARIABLES],
+    rangeHours,
+  };
+}
+
+async function fetchCopernicusForecast({ latitude, longitude, config }) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error('Latitude and longitude are required for Copernicus.');
+  }
+  if (!config?.username || !config?.password) {
+    throw new Error('Copernicus credentials are missing.');
+  }
+
+  const url = new URL(config.endpoint || COPERNICUS_DEFAULT_ENDPOINT);
+  url.searchParams.set('latitude', latitude.toString());
+  url.searchParams.set('longitude', longitude.toString());
+  if (config.productId) {
+    url.searchParams.set('product_id', config.productId);
+  }
+  if (Array.isArray(config.variables) && config.variables.length) {
+    url.searchParams.set('variables', config.variables.join(','));
+  }
+  const horizon = Number.isFinite(config.rangeHours) && config.rangeHours > 0 ? config.rangeHours : 96;
+  const start = new Date();
+  const end = new Date(start.getTime() + horizon * 60 * 60 * 1000);
+  url.searchParams.set('start_datetime', start.toISOString());
+  url.searchParams.set('end_datetime', end.toISOString());
+  url.searchParams.set('temporal_resolution', 'PT1H');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.username}:${config.password}`).toString('base64')}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    const fallbackLabel = `${response.status} ${response.statusText}`.trim();
+    throw new Error(
+      text ? `Copernicus forecast failed: ${text.slice(0, 200)}` : `Copernicus forecast failed: ${fallbackLabel}`
+    );
+  }
+
+  const payload = await response.json();
+  const normalised = normaliseCopernicusForecast(payload);
+  if (!normalised?.hourly?.time?.length) {
+    throw new Error('Copernicus forecast did not return any time series data.');
+  }
+  return normalised;
+}
 
 function parseDate(value) {
   if (!value) return null;
@@ -70,6 +177,99 @@ async function findNearestStopArea({ latitude, longitude, token, role }) {
   };
 }
 
+function resolveCoordinates(req) {
+  const source = req.method === 'POST' ? req.body ?? {} : req.query ?? {};
+  let latitude = Number.parseFloat(source.lat ?? source.latitude);
+  let longitude = Number.parseFloat(source.lon ?? source.longitude);
+  const spotId = (source.spotId ?? req.body?.spotId ?? req.query?.spotId ?? '').toString();
+
+  if (spotId) {
+    const spot = findSpotById(spotId);
+    if (spot) {
+      latitude = spot.latitude;
+      longitude = spot.longitude;
+    }
+  }
+
+  return { latitude, longitude };
+}
+
+async function handleForecastRequest(req, res) {
+  const { latitude, longitude } = resolveCoordinates(req);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    res.status(400).json({ error: 'Latitude and longitude are required.' });
+    return;
+  }
+
+  const requestedConfig = req.method === 'POST' ? req.body?.copernicus ?? {} : {};
+  const config = resolveCopernicusConfig(requestedConfig);
+  const hasCopernicusCredentials = Boolean(config.username && config.password);
+  let copernicusError = null;
+
+  if (hasCopernicusCredentials) {
+    try {
+      const payload = await fetchCopernicusForecast({ latitude, longitude, config });
+      res.json(payload);
+      return;
+    } catch (error) {
+      copernicusError = error;
+      console.error('Copernicus forecast failed', error);
+    }
+  }
+
+  const params = new URLSearchParams({
+    latitude: latitude.toString(),
+    longitude: longitude.toString(),
+    hourly: 'wave_height,wind_speed_10m,wind_direction_10m,temperature_2m',
+    daily: 'wave_height_max,swell_height_max,swell_direction_dominant',
+    timezone: 'auto',
+  });
+
+  try {
+    const response = await fetch(`https://marine-api.open-meteo.com/v1/marine?${params}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      const message = `Forecast request failed: ${response.status} ${response.statusText}`;
+      if (copernicusError) {
+        res.status(response.status).json({
+          error: 'Copernicus and Open-Meteo forecast requests failed.',
+          details: `${copernicusError.message ?? 'Copernicus forecast failed.'} | Open-Meteo: ${
+            text.slice(0, 200) || message
+          }`,
+        });
+      } else {
+        res.status(response.status).json({
+          error: message,
+          details: text.slice(0, 200),
+        });
+      }
+      return;
+    }
+    const payload = await response.json();
+    const meta = payload && typeof payload.meta === 'object' && !Array.isArray(payload.meta) ? payload.meta : {};
+    if (copernicusError) {
+      payload.meta = {
+        ...meta,
+        fallback: 'open-meteo',
+        copernicusError: copernicusError.message ?? 'Copernicus forecast failed.',
+      };
+      payload.source = payload.source || 'open-meteo-fallback';
+    } else if (meta !== payload.meta) {
+      payload.meta = meta;
+      payload.source = payload.source || 'open-meteo';
+    } else {
+      payload.source = payload.source || 'open-meteo';
+    }
+    res.json(payload);
+  } catch (error) {
+    const details = copernicusError
+      ? `${error.message}; Copernicus fallback error: ${copernicusError.message}`
+      : error.message;
+    res.status(502).json({ error: 'Forecast lookup failed.', details });
+  }
+}
+
 app.get('/api/spots', (req, res) => {
   res.json({ spots: surfSpots });
 });
@@ -112,44 +312,8 @@ app.get('/api/geocode', async (req, res) => {
   }
 });
 
-app.get('/api/forecast', async (req, res) => {
-  const { spotId } = req.query;
-  let latitude = Number.parseFloat(req.query.lat);
-  let longitude = Number.parseFloat(req.query.lon);
-  if (spotId) {
-    const spot = findSpotById(spotId.toString());
-    if (spot) {
-      latitude = spot.latitude;
-      longitude = spot.longitude;
-    }
-  }
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    res.status(400).json({ error: 'Latitude and longitude are required.' });
-    return;
-  }
-  const params = new URLSearchParams({
-    latitude: latitude.toString(),
-    longitude: longitude.toString(),
-    hourly: 'wave_height,wind_speed_10m,wind_direction_10m,temperature_2m',
-    daily: 'wave_height_max,swell_height_max,swell_direction_dominant',
-    timezone: 'auto',
-  });
-  try {
-    const response = await fetch(`https://marine-api.open-meteo.com/v1/marine?${params}`);
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      res.status(response.status).json({
-        error: `Forecast request failed: ${response.status} ${response.statusText}`,
-        details: text.slice(0, 200),
-      });
-      return;
-    }
-    const payload = await response.json();
-    res.json(payload);
-  } catch (error) {
-    res.status(502).json({ error: 'Forecast lookup failed.', details: error.message });
-  }
-});
+app.post('/api/forecast', handleForecastRequest);
+app.get('/api/forecast', handleForecastRequest);
 
 app.post('/api/flights', async (req, res) => {
   const origin = (req.body?.origin ?? '').toString().toUpperCase();

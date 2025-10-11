@@ -59,7 +59,8 @@ body {
 }
 
 input[type='text'],
-input[type='password'] {
+input[type='password'],
+input[type='number'] {
   padding: 0.65rem 0.75rem;
   border: 1px solid rgba(82, 96, 109, 0.4);
   border-radius: 0.75rem;
@@ -68,7 +69,8 @@ input[type='password'] {
 }
 
 input[type='text']:focus-visible,
-input[type='password']:focus-visible {
+input[type='password']:focus-visible,
+input[type='number']:focus-visible {
   outline: 3px solid rgba(13, 148, 136, 0.4);
   outline-offset: 2px;
 }
