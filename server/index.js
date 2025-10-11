@@ -23,6 +23,53 @@ function parseDate(value) {
   return Number.isNaN(date?.getTime?.()) ? null : date;
 }
 
+async function findNearestStopArea({ latitude, longitude, token, role }) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error(`Invalid coordinates provided for ${role ?? 'location'}.`);
+  }
+  const url = new URL(
+    `https://api.sncf.com/v1/coverage/sncf/coords/${longitude};${latitude}/places_nearby`
+  );
+  url.searchParams.set('type[]', 'stop_area');
+  url.searchParams.set('count', '1');
+  url.searchParams.set('distance', '20000');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${token}:`).toString('base64')}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    const fallbackLabel = `${response.status} ${response.statusText}`.trim();
+    throw new Error(
+      text
+        ? `Failed to find ${role ?? 'nearby'} SNCF station: ${text.slice(0, 200)}`
+        : `Failed to find ${role ?? 'nearby'} SNCF station: ${fallbackLabel}`
+    );
+  }
+
+  const payload = await response.json();
+  const candidate = Array.isArray(payload?.places_nearby)
+    ? payload.places_nearby.find(
+        (place) => place?.embedded_type === 'stop_area' && place?.stop_area?.id
+      )
+    : null;
+
+  if (!candidate?.stop_area?.id) {
+    return null;
+  }
+
+  return {
+    id: candidate.stop_area.id,
+    name: candidate.stop_area.name ?? candidate.stop_area.label ?? 'Unknown station',
+    label: candidate.stop_area.label ?? candidate.stop_area.name ?? candidate.stop_area.id,
+    distanceMeters: Number.isFinite(candidate.distance) ? candidate.distance : null,
+  };
+}
+
 app.get('/api/spots', (req, res) => {
   res.json({ spots: surfSpots });
 });
@@ -174,9 +221,34 @@ app.post('/api/trains', async (req, res) => {
   }
 
   try {
+    const [arrivalStation, originStation] = await Promise.all([
+      findNearestStopArea({
+        latitude: to.latitude,
+        longitude: to.longitude,
+        token,
+        role: 'destination',
+      }),
+      findNearestStopArea({
+        latitude: from.latitude,
+        longitude: from.longitude,
+        token,
+        role: 'origin',
+      }).catch(() => null),
+    ]);
+
+    if (!arrivalStation) {
+      res
+        .status(404)
+        .json({ error: 'No SNCF station found near the destination location.' });
+      return;
+    }
+
     const url = new URL('https://api.sncf.com/v1/coverage/sncf/journeys');
-    url.searchParams.set('from', `${from.longitude};${from.latitude}`);
-    url.searchParams.set('to', `${to.longitude};${to.latitude}`);
+    url.searchParams.set(
+      'from',
+      originStation ? originStation.id : `${from.longitude};${from.latitude}`
+    );
+    url.searchParams.set('to', arrivalStation.id);
     url.searchParams.set('datetime', formatSncfDatetime(departureDate));
     url.searchParams.set('datetime_represents', 'departure');
     url.searchParams.set('count', '3');
@@ -210,7 +282,11 @@ app.post('/api/trains', async (req, res) => {
       return;
     }
     const payload = await response.json();
-    res.json({ journeys: normaliseSncfJourneys(payload) });
+    res.json({
+      journeys: normaliseSncfJourneys(payload),
+      arrivalStation,
+      originStation,
+    });
   } catch (error) {
     res.status(502).json({ error: 'Rail lookup failed.', details: error.message });
   }

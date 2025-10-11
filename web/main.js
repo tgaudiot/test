@@ -547,6 +547,59 @@ function normaliseSncfJourneys(raw) {
   }));
 }
 
+async function findNearestSncfStopArea({ latitude, longitude }) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error('Invalid coordinates provided for SNCF lookup.');
+  }
+
+  const token = settings.sncfApi.key.trim();
+  if (!token) {
+    throw new Error('Missing SNCF API token.');
+  }
+
+  const url = new URL(
+    `https://api.sncf.com/v1/coverage/sncf/coords/${longitude};${latitude}/places_nearby`
+  );
+  url.searchParams.set('type[]', 'stop_area');
+  url.searchParams.set('count', '1');
+  url.searchParams.set('distance', '20000');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Basic ${btoa(`${token}:`)}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const fallbackLabel = `${response.status} ${response.statusText}`.trim();
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      text
+        ? `SNCF station lookup failed: ${text.slice(0, 120)}`
+        : `SNCF station lookup failed: ${fallbackLabel}`
+    );
+  }
+
+  const payload = await response.json();
+  const candidate = Array.isArray(payload?.places_nearby)
+    ? payload.places_nearby.find(
+        (place) => place?.embedded_type === 'stop_area' && place?.stop_area?.id
+      )
+    : null;
+
+  if (!candidate?.stop_area?.id) {
+    return null;
+  }
+
+  return {
+    id: candidate.stop_area.id,
+    name: candidate.stop_area.name ?? candidate.stop_area.label ?? 'Unknown station',
+    label: candidate.stop_area.label ?? candidate.stop_area.name ?? candidate.stop_area.id,
+    distanceMeters: Number.isFinite(candidate.distance) ? candidate.distance : null,
+  };
+}
+
 async function fetchSncfJourneys({ from, to, departureDate }) {
   const backendPayload = {
     from,
@@ -577,12 +630,20 @@ async function fetchSncfJourneys({ from, to, departureDate }) {
     }
     const payload = await response.json();
     if (Array.isArray(payload?.journeys)) {
-      return payload.journeys;
+      return {
+        journeys: payload.journeys,
+        arrivalStation: payload?.arrivalStation ?? null,
+        originStation: payload?.originStation ?? null,
+      };
     }
     if (payload?.error) {
       throw new Error(payload.error);
     }
-    return [];
+    return {
+      journeys: [],
+      arrivalStation: payload?.arrivalStation ?? null,
+      originStation: payload?.originStation ?? null,
+    };
   } catch (error) {
     if (error?.code !== 'BACKEND_MISSING' && error?.name !== 'TypeError') {
       throw error;
@@ -590,9 +651,24 @@ async function fetchSncfJourneys({ from, to, departureDate }) {
     console.warn('Falling back to client-side rail fetch', error);
   }
 
+  const arrivalStation = await findNearestSncfStopArea(to);
+  if (!arrivalStation) {
+    throw new Error('No SNCF station found near the destination location.');
+  }
+
+  let originStation = null;
+  try {
+    originStation = await findNearestSncfStopArea(from);
+  } catch (stationError) {
+    console.warn('Failed to resolve origin station, falling back to coordinates', stationError);
+  }
+
   const url = new URL('https://api.sncf.com/v1/coverage/sncf/journeys');
-  url.searchParams.set('from', `${from.longitude};${from.latitude}`);
-  url.searchParams.set('to', `${to.longitude};${to.latitude}`);
+  url.searchParams.set(
+    'from',
+    originStation ? originStation.id : `${from.longitude};${from.latitude}`
+  );
+  url.searchParams.set('to', arrivalStation.id);
   url.searchParams.set('datetime', formatSncfDatetime(departureDate));
   url.searchParams.set('datetime_represents', 'departure');
   url.searchParams.set('count', '3');
@@ -631,7 +707,11 @@ async function fetchSncfJourneys({ from, to, departureDate }) {
   }
 
   const data = await response.json();
-  return normaliseSncfJourneys(data);
+  return {
+    journeys: normaliseSncfJourneys(data),
+    arrivalStation,
+    originStation,
+  };
 }
 
 function tryParseDate(value) {
@@ -778,6 +858,21 @@ function renderTravelSection(spot, state) {
   const railHeading = document.createElement('h5');
   railHeading.textContent = 'Rail via SNCF';
   railSection.appendChild(railHeading);
+
+  if (travel.arrivalStation?.name) {
+    let label = `Nearest station: ${travel.arrivalStation.name}`;
+    if (Number.isFinite(travel.arrivalStation.distanceMeters)) {
+      const distanceMeters = travel.arrivalStation.distanceMeters;
+      if (distanceMeters >= 1000) {
+        const km = distanceMeters / 1000;
+        const precision = km >= 10 ? 0 : 1;
+        label += ` (${km.toFixed(precision)} km from the spot)`;
+      } else if (distanceMeters > 0) {
+        label += ` (${Math.round(distanceMeters)} m from the spot)`;
+      }
+    }
+    railSection.appendChild(createParagraph(label, 'travel-note'));
+  }
 
   if (travel.loadingTrains) {
     railSection.appendChild(createParagraph('Fetching live rail journeys…'));
@@ -940,6 +1035,7 @@ async function updateSpots() {
       trainJourneys: [],
       flightError: null,
       trainError: null,
+      arrivalStation: null,
     };
 
     if (!hasDestinationAirport) {
@@ -994,12 +1090,13 @@ async function updateSpots() {
         to: spot,
         departureDate: tripDate,
       })
-        .then((journeys) => {
+        .then(({ journeys, arrivalStation }) => {
           if (runToken !== updateSequence) return;
           updateSpotState(spot.id, (draft) => {
             if (!draft.travel) return;
             draft.travel.loadingTrains = false;
             draft.travel.trainJourneys = journeys;
+            draft.travel.arrivalStation = arrivalStation ?? null;
             if (!journeys.length) {
               draft.travel.trainError =
                 'No rail journeys returned for the selected date.';
@@ -1013,6 +1110,7 @@ async function updateSpots() {
           updateSpotState(spot.id, (draft) => {
             if (!draft.travel) return;
             draft.travel.loadingTrains = false;
+            draft.travel.arrivalStation = null;
             draft.travel.trainError = error.message ?? 'Failed to load rail journeys.';
           });
         });

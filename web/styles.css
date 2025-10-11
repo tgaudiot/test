@@ -247,6 +247,11 @@ main {
   font-weight: 600;
 }
 
+.travel-note {
+  font-style: italic;
+  color: var(--muted);
+}
+
 .forecast-list p {
   margin: 0.25rem 0;
 }
