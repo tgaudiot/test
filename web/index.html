@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Surf Trip Planner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <h1>Surf Trip Planner</h1>
+      <p>Discover the best surf spots for your next adventure with real-time marine forecasts and travel estimates.</p>
+      <div class="controls">
+        <button id="locate-btn" class="primary">Use my location</button>
+        <div class="input-group">
+          <label for="location-input">...or search by city</label>
+          <input type="text" id="location-input" placeholder="e.g. Lisbon" />
+          <button id="search-btn" class="secondary">Search</button>
+        </div>
+        <div id="status" role="status" aria-live="polite"></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="integrations">
+        <h2>Live travel integrations</h2>
+        <p>
+          Provide your own API credentials to fetch real flight and rail options alongside the distance-based heuristics. Keys are
+          stored locally in this browser only.
+        </p>
+        <form class="integrations-form" autocomplete="off">
+          <fieldset>
+            <legend>Flights (Google Flights API via RapidAPI)</legend>
+            <label for="origin-airport-input">Origin airport (IATA code)</label>
+            <input
+              id="origin-airport-input"
+              name="origin-airport"
+              placeholder="e.g. CDG"
+              maxlength="3"
+              inputmode="latin"
+              autocapitalize="characters"
+            />
+            <label for="flight-host-input">RapidAPI host</label>
+            <input
+              id="flight-host-input"
+              name="flight-host"
+              placeholder="google-flights43.p.rapidapi.com"
+            />
+            <label for="flight-key-input">RapidAPI key</label>
+            <input id="flight-key-input" name="flight-key" type="password" placeholder="Your RapidAPI key" />
+          </fieldset>
+          <fieldset>
+            <legend>Rail (SNCF API)</legend>
+            <label for="sncf-key-input">SNCF API token</label>
+            <input id="sncf-key-input" name="sncf-key" type="password" placeholder="api.sncf.com token" />
+          </fieldset>
+          <p class="hint">
+            Need keys? Sign up for <a href="https://rapidapi.com/apidojo/api/google-flights/" target="_blank" rel="noreferrer">RapidAPI</a>
+            and <a href="https://www.digital.sncf.com/startup/api" target="_blank" rel="noreferrer">SNCF</a> access.
+          </p>
+        </form>
+      </section>
+
+      <section>
+        <h2>Featured surf spots</h2>
+        <p>Select a spot to reveal forecast details and travel cost estimates. Forecasts use the Open-Meteo marine API and prices are calculated from the distance between you and the spot.</p>
+        <div id="spots" class="spot-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="tips">
+        <h2>Planning tips</h2>
+        <ul>
+          <li>Check the swell height and wind direction for the hours you plan to surf.</li>
+          <li>Use the price estimates to compare rail and flight options&mdash;they are based on average regional fares per kilometer.</li>
+          <li>Book flexible tickets and pack according to the temperature trends displayed for each location.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <p>Built with ❤️ for surfers. Weather data courtesy of <a href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a>.</p>
+    </footer>
+
+    <template id="spot-template">
+      <article class="spot-card">
+        <header>
+          <h3 class="spot-name"></h3>
+          <p class="spot-location"></p>
+        </header>
+        <div class="spot-body">
+          <div class="forecast"></div>
+          <div class="travel"></div>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
