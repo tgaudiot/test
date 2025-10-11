@@ -1,6 +1,6 @@
 # Surf Trip Planner
 
-A lightweight static web app that helps surfers discover upcoming weekend sessions by combining marine forecasts for iconic European spots with estimated travel costs.
+A lightweight static web app that helps surfers discover upcoming weekend sessions by combining marine forecasts for iconic French spots with estimated travel costs.
 
 ## Features
 
