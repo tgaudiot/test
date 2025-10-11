@@ -610,9 +610,23 @@ async function fetchSncfJourneys({ from, to, departureDate }) {
   });
 
   if (!response.ok) {
+    const fallbackLabel = `${response.status} ${response.statusText}`.trim();
     const text = await response.text().catch(() => '');
+    let friendlyMessage = '';
+    if (text) {
+      try {
+        const payload = JSON.parse(text);
+        if (payload?.error?.message) {
+          friendlyMessage = payload.error.message;
+        }
+      } catch (error) {
+        // Ignore JSON parse issues, we'll fall back to the raw snippet below.
+      }
+    }
     throw new Error(
-      `SNCF request failed (${response.status} ${response.statusText}). ${text.slice(0, 120)}`
+      friendlyMessage
+        ? `SNCF request failed: ${friendlyMessage}`
+        : `SNCF request failed: ${fallbackLabel}. ${text.slice(0, 120)}`
     );
   }
 

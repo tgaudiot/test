@@ -188,10 +188,24 @@ app.post('/api/trains', async (req, res) => {
       },
     });
     if (!response.ok) {
+      const fallbackLabel = `${response.status} ${response.statusText}`.trim();
       const text = await response.text().catch(() => '');
+      let friendlyMessage = '';
+      if (text) {
+        try {
+          const payload = JSON.parse(text);
+          if (payload?.error?.message) {
+            friendlyMessage = payload.error.message;
+          }
+        } catch (error) {
+          // Ignore JSON parse errors – we'll fall back to the raw snippet below.
+        }
+      }
       res.status(response.status).json({
-        error: `Rail request failed: ${response.status} ${response.statusText}`,
-        details: text.slice(0, 200),
+        error: friendlyMessage
+          ? `Rail request failed: ${friendlyMessage}`
+          : `Rail request failed: ${fallbackLabel}`,
+        details: friendlyMessage || text.slice(0, 200) || fallbackLabel,
       });
       return;
     }
