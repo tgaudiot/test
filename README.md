@@ -12,7 +12,33 @@ A lightweight static web app that helps surfers discover upcoming weekend sessio
 
 ## Getting started
 
-The project is fully static, so you can open `web/index.html` directly in a browser or serve the `web` directory with any static web server (for example, `python -m http.server` from within the directory).
+The project ships with a lightweight Node.js backend so you can run it as a dynamic web app that proxies external APIs and keeps your credentials off the client. If you prefer, you can still open `web/index.html` directly in a browser or serve the `web` directory with any static web server (for example, `python -m http.server` from within the directory).
+
+### Running the dynamic server
+
+1. Install dependencies (Node.js 18+ is recommended so the server can use the built-in `fetch` API):
+
+   ```bash
+   npm install
+   ```
+
+2. Provide any API credentials as environment variables (optional if you want to enter them in the UI):
+
+   ```bash
+   export RAPIDAPI_HOST="google-flights43.p.rapidapi.com"
+   export RAPIDAPI_KEY="your-rapidapi-key"
+   export SNCF_TOKEN="your-sncf-token"
+   ```
+
+3. Start the server:
+
+   ```bash
+   npm start
+   ```
+
+4. Visit <http://localhost:3000> to use the app. The Node backend serves the static assets and exposes `/api` routes that proxy Open-Meteo, Google Flights, and SNCF so the browser never touches those services directly.
+
+The dynamic server is optional&mdash;if it is not running the front-end automatically falls back to the direct browser-based requests used in the original static version.
 
 > **Note:** Browser geolocation requires HTTPS in production environments. When testing locally you may need to enable location access manually.
 

@@ -28,6 +28,11 @@
           Provide your own API credentials to fetch real flight and rail options alongside the distance-based heuristics. Keys are
           stored locally in this browser only.
         </p>
+        <p class="hint">
+          Running the optional Node.js backend lets you keep credentials on the server instead. Configure them with
+          <code>RAPIDAPI_HOST</code>, <code>RAPIDAPI_KEY</code>, and <code>SNCF_TOKEN</code> environment variables before starting
+          the app.
+        </p>
         <form class="integrations-form" autocomplete="off">
           <fieldset>
             <legend>Flights (Google Flights API via RapidAPI)</legend>

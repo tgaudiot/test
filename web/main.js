@@ -9,7 +9,7 @@ const flightHostInput = document.querySelector('#flight-host-input');
 const flightKeyInput = document.querySelector('#flight-key-input');
 const sncfKeyInput = document.querySelector('#sncf-key-input');
 
-const surfSpots = [
+const defaultSurfSpots = [
   {
     id: 'hossegor',
     name: 'Hossegor',
@@ -59,8 +59,29 @@ const surfSpots = [
     airportCode: 'AMS',
   },
 ];
+let surfSpots = [...defaultSurfSpots];
+let spotById = new Map(defaultSurfSpots.map((spot) => [spot.id, spot]));
 
-const spotById = new Map(surfSpots.map((spot) => [spot.id, spot]));
+function setSurfSpots(spots) {
+  surfSpots = Array.isArray(spots) && spots.length ? spots : [...defaultSurfSpots];
+  spotById = new Map(surfSpots.map((spot) => [spot.id, spot]));
+}
+
+async function loadSurfSpotsFromBackend() {
+  try {
+    const response = await fetch('/api/spots');
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    if (Array.isArray(payload?.spots) && payload.spots.length) {
+      setSurfSpots(payload.spots);
+      updateSpots();
+    }
+  } catch (error) {
+    console.warn('Unable to load surf spots from backend, using defaults', error);
+  }
+}
 
 let userLocation = null;
 
@@ -188,6 +209,26 @@ function estimateTravel(distanceKm) {
 }
 
 async function fetchForecast(spot) {
+  const backendParams = new URLSearchParams({
+    spotId: spot.id ?? '',
+    lat: spot.latitude,
+    lon: spot.longitude,
+  });
+  try {
+    const backendResponse = await fetch(`/api/forecast?${backendParams.toString()}`);
+    if (backendResponse.ok) {
+      return backendResponse.json();
+    }
+    if (backendResponse.status && backendResponse.status !== 404) {
+      const errorPayload = await backendResponse.json().catch(async () => ({
+        error: await backendResponse.text().catch(() => 'Forecast request failed'),
+      }));
+      throw new Error(errorPayload.error || 'Unable to fetch forecast data');
+    }
+  } catch (error) {
+    console.warn('Falling back to direct forecast fetch', error);
+  }
+
   const params = new URLSearchParams({
     latitude: spot.latitude,
     longitude: spot.longitude,
@@ -405,6 +446,49 @@ function normaliseFlightOffers(raw) {
 }
 
 async function fetchFlightOffers({ origin, destination, departureDate }) {
+  const backendPayload = {
+    origin,
+    destination,
+    departureDate: departureDate?.toISOString?.() ?? departureDate,
+    rapidApi: {
+      host: settings.flightApi.host,
+      key: settings.flightApi.key,
+    },
+  };
+  try {
+    const response = await fetch('/api/flights', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(backendPayload),
+    });
+    if (response.status === 404) {
+      const error = new Error('Flights backend not available.');
+      error.code = 'BACKEND_MISSING';
+      throw error;
+    }
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(async () => ({
+        error: await response.text().catch(() => 'Failed to fetch flight offers.'),
+      }));
+      throw new Error(errorPayload.error || 'Failed to fetch flight offers.');
+    }
+    const payload = await response.json();
+    if (Array.isArray(payload?.offers)) {
+      return payload.offers;
+    }
+    if (payload?.error) {
+      throw new Error(payload.error);
+    }
+    return [];
+  } catch (error) {
+    if (error?.code !== 'BACKEND_MISSING' && error?.name !== 'TypeError') {
+      throw error;
+    }
+    console.warn('Falling back to client-side flights fetch', error);
+  }
+
   const hostHeader = settings.flightApi.host.trim().replace(/^https?:\/\//i, '');
   if (!hostHeader) {
     throw new Error('Missing RapidAPI host for Google Flights.');
@@ -464,6 +548,48 @@ function normaliseSncfJourneys(raw) {
 }
 
 async function fetchSncfJourneys({ from, to, departureDate }) {
+  const backendPayload = {
+    from,
+    to,
+    departureDate: departureDate?.toISOString?.() ?? departureDate,
+    sncf: {
+      key: settings.sncfApi.key,
+    },
+  };
+  try {
+    const response = await fetch('/api/trains', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(backendPayload),
+    });
+    if (response.status === 404) {
+      const error = new Error('Rail backend not available.');
+      error.code = 'BACKEND_MISSING';
+      throw error;
+    }
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(async () => ({
+        error: await response.text().catch(() => 'Failed to fetch rail journeys.'),
+      }));
+      throw new Error(errorPayload.error || 'Failed to fetch rail journeys.');
+    }
+    const payload = await response.json();
+    if (Array.isArray(payload?.journeys)) {
+      return payload.journeys;
+    }
+    if (payload?.error) {
+      throw new Error(payload.error);
+    }
+    return [];
+  } catch (error) {
+    if (error?.code !== 'BACKEND_MISSING' && error?.name !== 'TypeError') {
+      throw error;
+    }
+    console.warn('Falling back to client-side rail fetch', error);
+  }
+
   const url = new URL('https://api.sncf.com/v1/coverage/sncf/journeys');
   url.searchParams.set('from', `${from.longitude};${from.latitude}`);
   url.searchParams.set('to', `${to.longitude};${to.latitude}`);
@@ -881,6 +1007,28 @@ async function updateSpots() {
 }
 
 async function geocode(query) {
+  const backendParams = new URLSearchParams({ query });
+  try {
+    const response = await fetch(`/api/geocode?${backendParams.toString()}`);
+    if (response.status === 404) {
+      const error = new Error('Geocoding backend not available.');
+      error.code = 'BACKEND_MISSING';
+      throw error;
+    }
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(async () => ({
+        error: await response.text().catch(() => 'Location search failed'),
+      }));
+      throw new Error(errorPayload.error || 'Location search failed');
+    }
+    return response.json();
+  } catch (error) {
+    if (error?.code !== 'BACKEND_MISSING' && error?.name !== 'TypeError') {
+      throw error;
+    }
+    console.warn('Falling back to direct geocoding fetch', error);
+  }
+
   const params = new URLSearchParams({
     name: query,
     count: 1,
@@ -989,3 +1137,4 @@ sncfKeyInput?.addEventListener('change', (event) => {
 
 // render initial placeholder cards
 updateSpots();
+loadSurfSpotsFromBackend();
