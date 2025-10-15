@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import base64
 import json
 import math
@@ -206,6 +207,81 @@ def _resolve_copernicus_subset_callable(module: Any) -> Callable[..., Any]:
     )
 
 
+def _resolve_copernicus_login_callable(module: Any) -> Optional[Callable[..., Any]]:
+    search_modules: list[Any] = [module]
+    for module_name in ("copernicusmarine.subset", "copernicusmarine.credentials"):
+        spec = importlib.util.find_spec(module_name)
+        if spec is None:
+            continue
+        try:
+            search_modules.append(importlib.import_module(module_name))
+        except ModuleNotFoundError:
+            continue
+
+    for candidate_module in search_modules:
+        for attribute in ("login", "Login"):
+            candidate = getattr(candidate_module, attribute, None)
+            if callable(candidate):
+                return candidate
+
+    return None
+
+
+def _invoke_copernicus_login(
+    *,
+    login_callable: Callable[..., Any],
+    username: str,
+    password: str,
+) -> None:
+    try:
+        signature = inspect.signature(login_callable)
+    except (TypeError, ValueError):
+        signature = None
+
+    call_kwargs: Dict[str, Any] = {}
+    if signature:
+        params = signature.parameters
+        if "username" in params:
+            call_kwargs["username"] = username
+        elif "user" in params:
+            call_kwargs["user"] = username
+        elif "login" in params:
+            call_kwargs["login"] = username
+
+        if "password" in params:
+            call_kwargs["password"] = password
+        elif "passwd" in params:
+            call_kwargs["passwd"] = password
+        elif "pwd" in params:
+            call_kwargs["pwd"] = password
+
+        for flag in ("overwrite", "force", "save"):
+            if flag in params:
+                call_kwargs[flag] = True
+
+        for optional in ("show_progress", "progress"):
+            if optional in params and optional not in call_kwargs:
+                call_kwargs[optional] = False
+
+    if not call_kwargs:
+        call_kwargs = {"username": username, "password": password}
+
+    try:
+        result = login_callable(**call_kwargs)
+    except TypeError:
+        result = login_callable(username, password)
+
+    if isinstance(result, Mapping):
+        status = str(result.get("status") or result.get("result") or "").lower()
+        if status and status not in {"ok", "success", "succeeded"}:
+            message = result.get("message") or result.get("detail") or result
+            raise RuntimeError(f"Copernicus login failed: {message}")
+    elif isinstance(result, bool) and not result:
+        raise RuntimeError("Copernicus login failed: credentials were rejected.")
+    elif isinstance(result, str) and "invalid" in result.lower():
+        raise RuntimeError(f"Copernicus login failed: {result}")
+
+
 def _collect_subset_paths(result: Any) -> list[Path]:
     paths: list[Path] = []
     visited: set[int] = set()
@@ -372,30 +448,49 @@ def _subset_copernicus_dataset(
 
         subset_callable = _resolve_copernicus_subset_callable(copernicusmarine)
 
+        login_callable = _resolve_copernicus_login_callable(copernicusmarine)
+        if username and password and login_callable:
+            try:
+                _invoke_copernicus_login(
+                    login_callable=login_callable,
+                    username=username,
+                    password=password,
+                )
+            except Exception as exc:
+                message = str(exc)
+                lowered = message.lower()
+                if lowered.startswith("copernicus login failed"):
+                    raise RuntimeError(message) from exc
+                raise RuntimeError(f"Copernicus login failed: {message}") from exc
+
         def _invoke_subset(kwargs: Dict[str, Any]) -> Any:
             call_kwargs = dict(kwargs)
             try:
-                if username and hasattr(copernicusmarine, "login"):
-                    try:
-                        copernicusmarine.login(username=username, password=password)
-                    except Exception:
-                        pass
                 return subset_callable(**call_kwargs)
             except TypeError:
                 call_kwargs.pop("username", None)
                 call_kwargs.pop("password", None)
                 return subset_callable(**call_kwargs)
 
+        def _raise_if_invalid_credentials(error: Exception) -> None:
+            message = str(error)
+            if "invalid credential" in message.lower():
+                raise RuntimeError(
+                    "Copernicus login failed: Invalid credentials provided."
+                ) from error
+
         try:
             subset_result = _invoke_subset(subset_kwargs)
         except Exception as exc:
+            _raise_if_invalid_credentials(exc)
             fallback_vars = [var for var in ("VHM0", "VTPK", "VMDR") if var in variables]
             if not fallback_vars:
                 fallback_vars = ["VHM0", "VTPK", "VMDR"]
             subset_kwargs["variables"] = fallback_vars
             try:
                 subset_result = _invoke_subset(subset_kwargs)
-            except Exception:
+            except Exception as second_exc:
+                _raise_if_invalid_credentials(second_exc)
                 raise exc
             else:
                 variables = list(fallback_vars)
