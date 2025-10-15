@@ -12,14 +12,16 @@ A lightweight static web app that helps surfers discover upcoming weekend sessio
 
 ## Getting started
 
-The project ships with a lightweight Node.js backend so you can run it as a dynamic web app that proxies external APIs and keeps your credentials off the client. If you prefer, you can still open `web/index.html` directly in a browser or serve the `web` directory with any static web server (for example, `python -m http.server` from within the directory).
+The project now ships with a lightweight Python backend so you can run it as a dynamic web app that proxies external APIs and keeps your credentials off the client. If you prefer, you can still open `web/index.html` directly in a browser or serve the `web` directory with any static web server (for example, `python -m http.server` from within the directory).
 
 ### Running the dynamic server
 
-1. Install dependencies (Node.js 18+ is recommended so the server can use the built-in `fetch` API):
+1. Install dependencies (Python 3.10+ is recommended):
 
    ```bash
-   npm install
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
    ```
 
 2. Provide any API credentials as environment variables (optional if you want to enter them in the UI):
@@ -39,10 +41,10 @@ The project ships with a lightweight Node.js backend so you can run it as a dyna
 3. Start the server:
 
    ```bash
-   npm start
+   uvicorn server.app:app --reload --host 0.0.0.0 --port 3000
    ```
 
-4. Visit <http://localhost:3000> to use the app. The Node backend serves the static assets and exposes `/api` routes that proxy Copernicus Marine, Open-Meteo (as a fallback), Google Flights, and SNCF so the browser never touches those services directly.
+4. Visit <http://localhost:3000> to use the app. The Python backend serves the static assets and exposes `/api` routes that proxy Copernicus Marine, Open-Meteo (as a fallback), Google Flights, and SNCF so the browser never touches those services directly.
 
 The dynamic server is optional&mdash;if it is not running the front-end automatically falls back to the direct browser-based requests used in the original static version.
 
