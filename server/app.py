@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import base64
 import json
 import math
@@ -10,7 +11,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 from zipfile import ZipFile
 
 import httpx
@@ -179,6 +180,32 @@ def _resolve_subset_variables(requested: Sequence[str]) -> list[str]:
     return resolved
 
 
+def _resolve_copernicus_subset_callable(module: Any) -> Callable[..., Any]:
+    candidate = getattr(module, "subset", None)
+    if callable(candidate):
+        return candidate
+
+    if candidate is not None and hasattr(candidate, "__call__"):
+        return candidate  # type: ignore[return-value]
+
+    subset_spec = importlib.util.find_spec("copernicusmarine.subset")
+    if subset_spec is not None:
+        subset_module = importlib.import_module("copernicusmarine.subset")
+        if callable(subset_module):
+            return subset_module  # type: ignore[return-value]
+
+        module_candidate = getattr(subset_module, "subset", None)
+        if callable(module_candidate):
+            return module_candidate
+
+        if module_candidate is not None and hasattr(module_candidate, "__call__"):
+            return module_candidate  # type: ignore[return-value]
+
+    raise AttributeError(
+        "copernicusmarine subset callable is unavailable; ensure the client package is up to date."
+    )
+
+
 def _collect_subset_paths(result: Any) -> list[Path]:
     paths: list[Path] = []
     visited: set[int] = set()
@@ -343,6 +370,8 @@ def _subset_copernicus_dataset(
         if password:
             subset_kwargs["password"] = password
 
+        subset_callable = _resolve_copernicus_subset_callable(copernicusmarine)
+
         def _invoke_subset(kwargs: Dict[str, Any]) -> Any:
             call_kwargs = dict(kwargs)
             try:
@@ -351,11 +380,11 @@ def _subset_copernicus_dataset(
                         copernicusmarine.login(username=username, password=password)
                     except Exception:
                         pass
-                return copernicusmarine.subset(**call_kwargs)
+                return subset_callable(**call_kwargs)
             except TypeError:
                 call_kwargs.pop("username", None)
                 call_kwargs.pop("password", None)
-                return copernicusmarine.subset(**call_kwargs)
+                return subset_callable(**call_kwargs)
 
         try:
             subset_result = _invoke_subset(subset_kwargs)
