@@ -146,14 +146,97 @@ def _truncate(text: str, limit: int = 200) -> str:
     return text if len(text) <= limit else text[:limit]
 
 
-def _extract_coordinates(source: Mapping[str, Any], spot_id: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
-    latitude = _coerce_float(source.get("lat") or source.get("latitude"))
-    longitude = _coerce_float(source.get("lon") or source.get("longitude"))
+def _extract_lat_lon_from_mapping(
+    source: Mapping[str, Any]
+) -> Tuple[Optional[float], Optional[float]]:
+    """Extract latitude/longitude pairs from a mapping."""
 
-    candidate_spot = find_spot_by_id(spot_id or source.get("spotId") or "")
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+    if not isinstance(source, Mapping):
+        return None, None
+
+    for key in ("latitude", "lat", "y"):
+        latitude = _coerce_float(source.get(key))
+        if latitude is not None:
+            break
+
+    for key in ("longitude", "lon", "lng", "x"):
+        longitude = _coerce_float(source.get(key))
+        if longitude is not None:
+            break
+
+    coords = source.get("coordinates") or source.get("coord") or source.get("location")
+    nested_lat: Optional[float] = None
+    nested_lon: Optional[float] = None
+    if isinstance(coords, Mapping):
+        nested_lat, nested_lon = _extract_lat_lon_from_mapping(coords)
+    elif isinstance(coords, Sequence) and not isinstance(coords, (str, bytes)):
+        if len(coords) >= 2:
+            nested_lon = _coerce_float(coords[0])
+            nested_lat = _coerce_float(coords[1])
+    elif isinstance(coords, str):
+        parts = [part.strip() for part in coords.replace(",", " ").split() if part.strip()]
+        if len(parts) >= 2:
+            parsed_lat = _coerce_float(parts[0])
+            parsed_lon = _coerce_float(parts[1])
+            nested_lat = parsed_lat if parsed_lat is not None else nested_lat
+            nested_lon = parsed_lon if parsed_lon is not None else nested_lon
+
+    if latitude is None and nested_lat is not None:
+        latitude = nested_lat
+    if longitude is None and nested_lon is not None:
+        longitude = nested_lon
+
+    return latitude, longitude
+
+
+def _extract_coordinates(
+    source: Mapping[str, Any], spot_id: Optional[str]
+) -> Tuple[Optional[float], Optional[float]]:
+    if not isinstance(source, Mapping):
+        source = {}
+
+    candidate_id = ""
+    if isinstance(spot_id, str):
+        candidate_id = spot_id.strip()
+    elif spot_id is not None:
+        candidate_id = str(spot_id).strip()
+
+    if not candidate_id:
+        raw_id = source.get("spotId") or source.get("id")
+        if isinstance(raw_id, str):
+            candidate_id = raw_id.strip()
+        elif raw_id is not None:
+            candidate_id = str(raw_id).strip()
+
+    candidate_spot = find_spot_by_id(candidate_id)
+
+    nested_spot = source.get("spot")
+    if not candidate_spot and isinstance(nested_spot, Mapping):
+        nested_id = nested_spot.get("id") or nested_spot.get("spotId")
+        if isinstance(nested_id, str):
+            candidate_spot = find_spot_by_id(nested_id.strip())
+        elif nested_id is not None:
+            candidate_spot = find_spot_by_id(str(nested_id).strip())
+
     if candidate_spot:
-        latitude = candidate_spot.latitude
-        longitude = candidate_spot.longitude
+        return candidate_spot.latitude, candidate_spot.longitude
+
+    latitude, longitude = _extract_lat_lon_from_mapping(source)
+
+    if isinstance(nested_spot, Mapping):
+        nested_lat, nested_lon = _extract_lat_lon_from_mapping(nested_spot)
+        if latitude is None and nested_lat is not None:
+            latitude = nested_lat
+        if longitude is None and nested_lon is not None:
+            longitude = nested_lon
+
+    if latitude is not None:
+        latitude = min(max(latitude, COPERNICUS_LAT_MIN), COPERNICUS_LAT_MAX)
+    if longitude is not None:
+        longitude = min(max(longitude, COPERNICUS_LON_MIN), COPERNICUS_LON_MAX)
 
     return latitude, longitude
 
