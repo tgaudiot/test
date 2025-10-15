@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import math
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Tuple
+from tempfile import TemporaryDirectory
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from zipfile import ZipFile
 
 import httpx
 from fastapi import Body, FastAPI, Query
@@ -27,11 +31,14 @@ app = FastAPI(title="Surf Trip Planner API")
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-COPERNICUS_DEFAULT_ENDPOINT = (
-    os.getenv("COPERNICUS_POINT_ENDPOINT", "https://nrt.cmems-du.eu/api/v1/forecast/point").strip()
+COPERNICUS_DEFAULT_DATASET_ID = (
+    os.getenv("COPERNICUS_DATASET_ID", "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i").strip()
 )
 COPERNICUS_DEFAULT_PRODUCT_ID = (
-    os.getenv("COPERNICUS_PRODUCT_ID", "GLOBAL_ANALYSIS_FORECAST_WAV_001_027-TDS").strip()
+    os.getenv("COPERNICUS_PRODUCT_ID", COPERNICUS_DEFAULT_DATASET_ID).strip()
+)
+COPERNICUS_DEFAULT_ENDPOINT = (
+    os.getenv("COPERNICUS_POINT_ENDPOINT", "https://nrt.cmems-du.eu/api/v1/forecast/point").strip()
 )
 COPERNICUS_DEFAULT_VARIABLES = [
     part.strip()
@@ -42,12 +49,32 @@ COPERNICUS_DEFAULT_RANGE_HOURS = float(os.getenv("COPERNICUS_RANGE_HOURS", "96")
 COPERNICUS_USERNAME = os.getenv("COPERNICUS_USERNAME", "").strip()
 COPERNICUS_PASSWORD = os.getenv("COPERNICUS_PASSWORD", "").strip()
 
+COPERNICUS_LAT_MIN = -80.0
+COPERNICUS_LAT_MAX = 90.0
+COPERNICUS_LON_MIN = -180.0
+COPERNICUS_LON_MAX = 179.91666666666666
+COPERNICUS_SUBSET_PADDING = 0.125
+
 COPERNICUS_FALLBACK_VARIABLES = [
     "significant_wave_height",
     "wind_speed",
     "wind_from_direction",
     "sea_surface_temperature",
 ]
+
+COPERNICUS_VARIABLE_ALIASES = {
+    "significant_wave_height": ["VHM0", "SWH"],
+    "wave_height": ["VHM0", "SWH"],
+    "wave": ["VHM0", "SWH"],
+    "wind_speed": ["WSPD", "WIND"],
+    "wind_speed_10m": ["WSPD"],
+    "wind_from_direction": ["VMDR", "MWD"],
+    "sea_surface_temperature": ["WTMP", "SST"],
+    "sea_water_temperature": ["WTMP", "SST"],
+    "temperature": ["WTMP", "SST"],
+    "sea_temperature": ["WTMP", "SST"],
+    "peak_wave_period": ["VTPK", "VTM10", "MWP"],
+}
 
 
 def _parse_variables(value: Any) -> list[str]:
@@ -62,7 +89,10 @@ def _resolve_copernicus_config(requested: Optional[Mapping[str, Any]] = None) ->
     requested = requested or {}
     username = str(requested.get("username", "")).strip() or COPERNICUS_USERNAME
     password = str(requested.get("password", "")).strip() or COPERNICUS_PASSWORD
-    product_id = str(requested.get("productId", "")).strip() or COPERNICUS_DEFAULT_PRODUCT_ID
+    dataset_id = str(requested.get("datasetId", "")).strip()
+    if not dataset_id:
+        dataset_id = str(requested.get("productId", "")).strip()
+    product_id = dataset_id or COPERNICUS_DEFAULT_PRODUCT_ID or COPERNICUS_DEFAULT_DATASET_ID
     endpoint = str(requested.get("pointUrl", "")).strip() or COPERNICUS_DEFAULT_ENDPOINT
     variables = _parse_variables(
         requested.get("variables") if requested.get("variables") else COPERNICUS_DEFAULT_VARIABLES
@@ -77,6 +107,7 @@ def _resolve_copernicus_config(requested: Optional[Mapping[str, Any]] = None) ->
         "username": username,
         "password": password,
         "productId": product_id,
+        "datasetId": product_id,
         "endpoint": endpoint,
         "variables": variables or list(COPERNICUS_FALLBACK_VARIABLES),
         "rangeHours": range_hours,
@@ -111,6 +142,314 @@ def _extract_coordinates(source: Mapping[str, Any], spot_id: Optional[str]) -> T
     return latitude, longitude
 
 
+def _resolve_subset_variables(requested: Sequence[str]) -> list[str]:
+    resolved: list[str] = []
+    seen: set[str] = set()
+
+    iterable: Sequence[str]
+    if isinstance(requested, str):
+        iterable = [requested]
+    else:
+        iterable = requested
+
+    for raw in iterable:
+        text = str(raw).strip()
+        if not text:
+            continue
+        lower = text.lower()
+        aliases = COPERNICUS_VARIABLE_ALIASES.get(lower)
+        if aliases:
+            for alias in aliases:
+                candidate = alias.strip().upper()
+                if candidate and candidate not in seen:
+                    seen.add(candidate)
+                    resolved.append(candidate)
+            continue
+        candidate = text.upper()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            resolved.append(candidate)
+
+    if not resolved:
+        for fallback in ("VHM0", "VTPK", "VMDR"):
+            if fallback not in seen:
+                seen.add(fallback)
+                resolved.append(fallback)
+
+    return resolved
+
+
+def _collect_subset_paths(result: Any) -> list[Path]:
+    paths: list[Path] = []
+    visited: set[int] = set()
+
+    def _walk(value: Any) -> None:
+        if value is None:
+            return
+        identifier = id(value)
+        if identifier in visited:
+            return
+        visited.add(identifier)
+
+        if isinstance(value, (str, os.PathLike)):
+            candidate = Path(value)
+            if candidate.exists():
+                paths.append(candidate)
+            return
+
+        if isinstance(value, Mapping):
+            for item in value.values():
+                _walk(item)
+            return
+
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                _walk(item)
+            return
+
+        for attr in (
+            "output_path",
+            "output_file_path",
+            "output_filename",
+            "path",
+            "filepath",
+            "subset_path",
+        ):
+            if hasattr(value, attr):
+                _walk(getattr(value, attr))
+
+    _walk(result)
+    return paths
+
+
+def _convert_time_axis(time_array: Any) -> list[str]:
+    import numpy as np
+    from netCDF4 import num2date
+
+    values = getattr(time_array, "values", time_array)
+    attrs = getattr(time_array, "attrs", {}) or {}
+    encoding = getattr(time_array, "encoding", {}) or {}
+
+    array = np.asanyarray(values)
+    if hasattr(array, "filled"):
+        array = array.filled(np.nan)
+
+    iso: list[str] = []
+    if array.size == 0:
+        return iso
+
+    if np.issubdtype(array.dtype, np.datetime64):
+        for item in array:
+            iso.append(np.datetime_as_string(item, unit="s"))
+        return iso
+
+    for item in array:
+        if isinstance(item, datetime):
+            iso.append(item.isoformat())
+    if iso:
+        return iso
+
+    units = attrs.get("units") or encoding.get("units")
+    if not units:
+        return iso
+    calendar = attrs.get("calendar") or encoding.get("calendar") or "standard"
+
+    for item in array:
+        try:
+            dt = num2date(item, units, calendar=calendar)
+        except Exception:
+            continue
+        if isinstance(dt, datetime):
+            iso.append(dt.isoformat())
+        else:
+            iso.append(str(dt))
+
+    return iso
+
+
+def _to_numeric_series(values: Any) -> list[Optional[float]]:
+    import numpy as np
+
+    array = np.asanyarray(values)
+    if hasattr(array, "filled"):
+        array = array.filled(np.nan)
+
+    flattened = array.reshape(-1)
+    series: list[Optional[float]] = []
+    for item in flattened:
+        if item is None:
+            series.append(None)
+            continue
+        try:
+            numeric = float(item)
+        except (TypeError, ValueError):
+            numeric = float("nan")
+        series.append(numeric if math.isfinite(numeric) else None)
+
+    return series
+
+
+def _subset_copernicus_dataset(
+    latitude: float,
+    longitude: float,
+    config: Mapping[str, Any],
+) -> Dict[str, Any]:
+    import copernicusmarine
+    import xarray as xr
+
+    dataset_id = str(config.get("datasetId") or config.get("productId") or "").strip()
+    if not dataset_id:
+        raise ValueError("Copernicus dataset ID is required.")
+
+    variables = _resolve_subset_variables(config.get("variables", []))
+
+    try:
+        horizon_hours = float(config.get("rangeHours", 96))
+    except (TypeError, ValueError):
+        horizon_hours = 96.0
+    if horizon_hours <= 0:
+        horizon_hours = 96.0
+
+    start_time = datetime.utcnow()
+    end_time = start_time + timedelta(hours=horizon_hours)
+
+    pad = COPERNICUS_SUBSET_PADDING
+    lat = max(COPERNICUS_LAT_MIN, min(COPERNICUS_LAT_MAX, float(latitude)))
+    lon = max(COPERNICUS_LON_MIN, min(COPERNICUS_LON_MAX, float(longitude)))
+    min_lat = max(COPERNICUS_LAT_MIN, lat - pad)
+    max_lat = min(COPERNICUS_LAT_MAX, lat + pad)
+    min_lon = max(COPERNICUS_LON_MIN, lon - pad)
+    max_lon = min(COPERNICUS_LON_MAX, lon + pad)
+
+    with TemporaryDirectory() as tmpdir:
+        subset_kwargs = {
+            "dataset_id": dataset_id,
+            "variables": variables,
+            "minimum_longitude": float(min_lon),
+            "maximum_longitude": float(max_lon),
+            "minimum_latitude": float(min_lat),
+            "maximum_latitude": float(max_lat),
+            "start_datetime": start_time.replace(microsecond=0).isoformat(),
+            "end_datetime": end_time.replace(microsecond=0).isoformat(),
+            "output_directory": tmpdir,
+            "overwrite": True,
+            "show_progress": False,
+        }
+
+        username = str(config.get("username", "")).strip()
+        password = str(config.get("password", "")).strip()
+        if username:
+            subset_kwargs["username"] = username
+        if password:
+            subset_kwargs["password"] = password
+
+        def _invoke_subset(kwargs: Dict[str, Any]) -> Any:
+            call_kwargs = dict(kwargs)
+            try:
+                if username and hasattr(copernicusmarine, "login"):
+                    try:
+                        copernicusmarine.login(username=username, password=password)
+                    except Exception:
+                        pass
+                return copernicusmarine.subset(**call_kwargs)
+            except TypeError:
+                call_kwargs.pop("username", None)
+                call_kwargs.pop("password", None)
+                return copernicusmarine.subset(**call_kwargs)
+
+        try:
+            subset_result = _invoke_subset(subset_kwargs)
+        except Exception as exc:
+            fallback_vars = [var for var in ("VHM0", "VTPK", "VMDR") if var in variables]
+            if not fallback_vars:
+                fallback_vars = ["VHM0", "VTPK", "VMDR"]
+            subset_kwargs["variables"] = fallback_vars
+            try:
+                subset_result = _invoke_subset(subset_kwargs)
+            except Exception:
+                raise exc
+            else:
+                variables = list(fallback_vars)
+
+        root = Path(tmpdir)
+        candidates = [path for path in _collect_subset_paths(subset_result) if path.exists()]
+
+        dataset_path: Optional[Path] = None
+        for candidate in candidates:
+            if candidate.suffix.lower() == ".nc" and candidate.exists():
+                dataset_path = candidate
+                break
+
+        if dataset_path is None:
+            nc_paths = list(root.rglob("*.nc"))
+            if nc_paths:
+                dataset_path = nc_paths[0]
+
+        if dataset_path is None:
+            archives = [path for path in candidates if path.suffix.lower() == ".zip" and path.exists()]
+            if not archives:
+                archives = list(root.rglob("*.zip"))
+            for archive_path in archives:
+                extract_root = root / "extracted"
+                extract_root.mkdir(exist_ok=True)
+                with ZipFile(archive_path) as archive:
+                    names = [name for name in archive.namelist() if name.lower().endswith(".nc")]
+                    if not names:
+                        continue
+                    extracted = Path(archive.extract(names[0], path=extract_root))
+                    dataset_path = extracted
+                    break
+
+        if dataset_path is None or not dataset_path.exists():
+            raise RuntimeError("Copernicus subset did not produce a NetCDF dataset.")
+
+        payload_variables: Dict[str, Any] = {}
+
+        with xr.open_dataset(dataset_path) as dataset:
+            dataset.load()
+            time_key: Optional[str] = None
+            for candidate in ("time", "TIME"):
+                if candidate in dataset.variables:
+                    time_key = candidate
+                    break
+            if time_key is None:
+                for coord_name in dataset.coords:
+                    if "time" in coord_name.lower():
+                        time_key = coord_name
+                        break
+            if time_key is None:
+                raise RuntimeError("Copernicus dataset does not include a time coordinate.")
+
+            time_array = dataset[time_key]
+            iso_times = _convert_time_axis(time_array)
+            if not iso_times:
+                raise RuntimeError("Unable to parse Copernicus time axis.")
+
+            desired = {name.lower() for name in variables}
+
+            for name, data_array in dataset.data_vars.items():
+                if name.lower() not in desired:
+                    continue
+                collapsed = data_array
+                for dim in tuple(collapsed.dims):
+                    if dim == time_key:
+                        continue
+                    collapsed = collapsed.isel({dim: 0})
+                collapsed = collapsed.squeeze(drop=True)
+                series = _to_numeric_series(collapsed.to_numpy())
+                if not series or len(series) != len(iso_times):
+                    continue
+                payload_variables[name] = {
+                    "time": list(iso_times),
+                    "values": series,
+                }
+
+        if not payload_variables:
+            raise RuntimeError("Copernicus dataset did not contain the requested variables.")
+
+    return normalise_copernicus_forecast({"variables": payload_variables})
+
+
 async def _fetch_copernicus_forecast(
     *,
     latitude: float,
@@ -120,50 +459,7 @@ async def _fetch_copernicus_forecast(
     if not config.get("username") or not config.get("password"):
         raise ValueError("Copernicus credentials are missing.")
 
-    params = {
-        "latitude": str(latitude),
-        "longitude": str(longitude),
-        "product_id": config.get("productId"),
-        "variables": ",".join(config.get("variables", [])),
-        "temporal_resolution": "PT1H",
-    }
-
-    horizon = config.get("rangeHours", 96)
-    try:
-        horizon_hours = float(horizon)
-    except (TypeError, ValueError):
-        horizon_hours = 96.0
-    if horizon_hours <= 0:
-        horizon_hours = 96.0
-
-    start_time = datetime.utcnow()
-    end_time = start_time + timedelta(hours=horizon_hours)
-    params["start_datetime"] = start_time.isoformat()
-    params["end_datetime"] = end_time.isoformat()
-
-    headers = {
-        "Authorization": "Basic "
-        + base64.b64encode(f"{config['username']}:{config['password']}".encode()).decode(),
-        "Accept": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(
-            config.get("endpoint", COPERNICUS_DEFAULT_ENDPOINT),
-            params={key: value for key, value in params.items() if value},
-            headers=headers,
-        )
-
-    if response.status_code >= 400:
-        snippet = _truncate(response.text or f"{response.status_code} {response.reason_phrase}")
-        raise RuntimeError(f"Copernicus forecast failed: {snippet}")
-
-    payload = response.json()
-    normalised = normalise_copernicus_forecast(payload)
-    hourly = normalised.get("hourly", {})
-    if not hourly or not hourly.get("time"):
-        raise RuntimeError("Copernicus forecast did not return any time series data.")
-    return normalised
+    return await asyncio.to_thread(_subset_copernicus_dataset, latitude, longitude, config)
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:

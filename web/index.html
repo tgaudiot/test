@@ -29,10 +29,11 @@
           distance-based heuristics. Keys are stored locally in this browser only.
         </p>
         <p class="hint">
-          Running the optional Node.js backend lets you keep credentials on the server instead. Configure them with
-          <code>COPERNICUS_USERNAME</code>, <code>COPERNICUS_PASSWORD</code>, <code>COPERNICUS_PRODUCT_ID</code>,
-          <code>COPERNICUS_VARIABLES</code>, <code>RAPIDAPI_HOST</code>, <code>RAPIDAPI_KEY</code>, and <code>SNCF_TOKEN</code>
-          environment variables before starting the app.
+          Running the optional Python backend lets you keep credentials on the server instead. Configure them with
+          <code>COPERNICUS_USERNAME</code>, <code>COPERNICUS_PASSWORD</code>, <code>COPERNICUS_DATASET_ID</code>
+          (or legacy <code>COPERNICUS_PRODUCT_ID</code>), <code>COPERNICUS_VARIABLES</code>,
+          <code>COPERNICUS_RANGE_HOURS</code>, <code>RAPIDAPI_HOST</code>, <code>RAPIDAPI_KEY</code>, and
+          <code>SNCF_TOKEN</code> environment variables before starting the app.
         </p>
         <form class="integrations-form" autocomplete="off">
           <fieldset>
@@ -51,11 +52,11 @@
               type="password"
               placeholder="Copernicus Marine account password"
             />
-            <label for="copernicus-product-input">Product ID</label>
+            <label for="copernicus-product-input">Dataset ID</label>
             <input
               id="copernicus-product-input"
               name="copernicus-product"
-              placeholder="GLOBAL_ANALYSIS_FORECAST_WAV_001_027-TDS"
+              placeholder="cmems_mod_glo_wav_anfc_0.083deg_PT3H-i"
             />
             <label for="copernicus-variables-input">Variables (comma separated)</label>
             <input
@@ -63,7 +64,7 @@
               name="copernicus-variables"
               placeholder="significant_wave_height,wind_speed,wind_from_direction,sea_surface_temperature"
             />
-            <label for="copernicus-endpoint-input">Point endpoint</label>
+            <label for="copernicus-endpoint-input">Point endpoint (browser fallback)</label>
             <input
               id="copernicus-endpoint-input"
               name="copernicus-endpoint"

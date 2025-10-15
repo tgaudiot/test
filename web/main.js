@@ -16,7 +16,7 @@ const copernicusEndpointInput = document.querySelector('#copernicus-endpoint-inp
 const copernicusHoursInput = document.querySelector('#copernicus-hours-input');
 
 const COPERNICUS_DEFAULT_POINT_URL = 'https://nrt.cmems-du.eu/api/v1/forecast/point';
-const COPERNICUS_DEFAULT_PRODUCT_ID = 'GLOBAL_ANALYSIS_FORECAST_WAV_001_027-TDS';
+const COPERNICUS_DEFAULT_PRODUCT_ID = 'cmems_mod_glo_wav_anfc_0.083deg_PT3H-i';
 const COPERNICUS_DEFAULT_VARIABLES = [
   'significant_wave_height',
   'wind_speed',
@@ -230,7 +230,9 @@ function buildCopernicusConfig() {
   const config = settings?.copernicusApi ?? defaultSettings.copernicusApi;
   const username = config?.username?.trim?.() || '';
   const password = config?.password?.trim?.() || '';
-  const productId = config?.productId?.trim?.() || COPERNICUS_DEFAULT_PRODUCT_ID;
+  const datasetId = config?.datasetId?.trim?.()
+    || config?.productId?.trim?.()
+    || COPERNICUS_DEFAULT_PRODUCT_ID;
   const pointUrl = config?.pointUrl?.trim?.() || COPERNICUS_DEFAULT_POINT_URL;
   const variablesList = parseCopernicusVariables(config?.variables);
   const rangeCandidate = Number.parseFloat(config?.rangeHours);
@@ -241,7 +243,8 @@ function buildCopernicusConfig() {
   return {
     username,
     password,
-    productId,
+    productId: datasetId,
+    datasetId,
     pointUrl,
     variables: variablesList.length ? variablesList : [...COPERNICUS_DEFAULT_VARIABLES],
     rangeHours,
@@ -455,6 +458,9 @@ async function fetchCopernicusForecastDirect(spot, config) {
   if (config.productId) {
     url.searchParams.set('product_id', config.productId);
   }
+  if (config.datasetId) {
+    url.searchParams.set('dataset_id', config.datasetId);
+  }
   if (Array.isArray(config.variables) && config.variables.length) {
     url.searchParams.set('variables', config.variables.join(','));
   }
@@ -562,6 +568,7 @@ async function fetchForecast(spot) {
       username: copernicusConfig.username,
       password: copernicusConfig.password,
       productId: copernicusConfig.productId,
+      datasetId: copernicusConfig.datasetId,
       variables: copernicusConfig.variables.join(','),
       pointUrl: copernicusConfig.pointUrl,
       rangeHours: copernicusConfig.rangeHours,
