@@ -48,6 +48,9 @@ COPERNICUS_DEFAULT_VARIABLES = [
     if part.strip()
 ]
 COPERNICUS_DEFAULT_RANGE_HOURS = float(os.getenv("COPERNICUS_RANGE_HOURS", "96") or 96)
+COPERNICUS_SUBSET_TIMEOUT_SECONDS = float(
+    os.getenv("COPERNICUS_SUBSET_TIMEOUT_SECONDS", "120") or 120
+)
 COPERNICUS_USERNAME = os.getenv("COPERNICUS_USERNAME", "").strip()
 COPERNICUS_PASSWORD = os.getenv("COPERNICUS_PASSWORD", "").strip()
 
@@ -105,6 +108,16 @@ def _resolve_copernicus_config(requested: Optional[Mapping[str, Any]] = None) ->
         range_candidate = COPERNICUS_DEFAULT_RANGE_HOURS
     range_hours = range_candidate if range_candidate > 0 else COPERNICUS_DEFAULT_RANGE_HOURS
 
+    try:
+        timeout_candidate = float(
+            requested.get("timeoutSeconds", COPERNICUS_SUBSET_TIMEOUT_SECONDS)
+        )
+    except (TypeError, ValueError):
+        timeout_candidate = COPERNICUS_SUBSET_TIMEOUT_SECONDS
+    timeout_seconds = (
+        timeout_candidate if timeout_candidate > 0 else COPERNICUS_SUBSET_TIMEOUT_SECONDS
+    )
+
     return {
         "username": username,
         "password": password,
@@ -113,6 +126,7 @@ def _resolve_copernicus_config(requested: Optional[Mapping[str, Any]] = None) ->
         "endpoint": endpoint,
         "variables": variables or list(COPERNICUS_FALLBACK_VARIABLES),
         "rangeHours": range_hours,
+        "timeoutSeconds": timeout_seconds,
     }
 
 
@@ -583,7 +597,23 @@ async def _fetch_copernicus_forecast(
     if not config.get("username") or not config.get("password"):
         raise ValueError("Copernicus credentials are missing.")
 
-    return await asyncio.to_thread(_subset_copernicus_dataset, latitude, longitude, config)
+    try:
+        timeout_candidate = float(config.get("timeoutSeconds", 0))
+    except (TypeError, ValueError):
+        timeout_candidate = 0
+    timeout_seconds = (
+        timeout_candidate if timeout_candidate and timeout_candidate > 0 else COPERNICUS_SUBSET_TIMEOUT_SECONDS
+    )
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_subset_copernicus_dataset, latitude, longitude, config),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"Copernicus forecast request exceeded the {timeout_seconds:.0f}-second timeout."
+        ) from exc
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
