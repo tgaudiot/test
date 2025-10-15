@@ -9,6 +9,7 @@ import base64
 import json
 import math
 import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -60,12 +61,7 @@ COPERNICUS_LON_MIN = -180.0
 COPERNICUS_LON_MAX = 179.91666666666666
 COPERNICUS_SUBSET_PADDING = 0.125
 
-COPERNICUS_FALLBACK_VARIABLES = [
-    "significant_wave_height",
-    "wind_speed",
-    "wind_from_direction",
-    "sea_surface_temperature",
-]
+COPERNICUS_FALLBACK_VARIABLES = ["significant_wave_height"]
 
 COPERNICUS_VARIABLE_ALIASES = {
     "significant_wave_height": ["VHM0", "SWH"],
@@ -255,7 +251,9 @@ def _resolve_subset_variables(requested: Sequence[str]) -> list[str]:
         text = str(raw).strip()
         if not text:
             continue
-        lower = text.lower()
+        lower = text.lower().rstrip("_")
+        if not lower:
+            continue
         aliases = COPERNICUS_VARIABLE_ALIASES.get(lower)
         if aliases:
             for alias in aliases:
@@ -264,13 +262,17 @@ def _resolve_subset_variables(requested: Sequence[str]) -> list[str]:
                     seen.add(candidate)
                     resolved.append(candidate)
             continue
-        candidate = text.upper()
+        candidate = text.upper().rstrip("_")
+        if not candidate:
+            continue
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", candidate):
+            continue
         if candidate and candidate not in seen:
             seen.add(candidate)
             resolved.append(candidate)
 
     if not resolved:
-        for fallback in ("VHM0", "VTPK", "VMDR"):
+        for fallback in ("VHM0",):
             if fallback not in seen:
                 seen.add(fallback)
                 resolved.append(fallback)

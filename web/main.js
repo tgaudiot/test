@@ -17,12 +17,7 @@ const copernicusHoursInput = document.querySelector('#copernicus-hours-input');
 
 const COPERNICUS_DEFAULT_POINT_URL = 'https://nrt.cmems-du.eu/api/v1/forecast/point';
 const COPERNICUS_DEFAULT_PRODUCT_ID = 'cmems_mod_glo_wav_anfc_0.083deg_PT3H-i';
-const COPERNICUS_DEFAULT_VARIABLES = [
-  'significant_wave_height',
-  'wind_speed',
-  'wind_from_direction',
-  'sea_surface_temperature',
-];
+const COPERNICUS_DEFAULT_VARIABLES = ['significant_wave_height'];
 const COPERNICUS_DEFAULT_RANGE_HOURS = 96;
 
 const defaultSurfSpots = [
