@@ -1,8 +1,8 @@
-# Theyr Weather Routing Analyzer
+# Theyr Voyage Viewer
 
 ## Run locally
 
-You can serve the static site with Python's built-in HTTP server:
+Serve the static page with Python:
 
 ```bash
 python -m http.server 8000

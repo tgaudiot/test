@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Theyr Weather Routing Analyzer</title>
+  <title>Theyr Voyage Viewer</title>
   <link rel="stylesheet" href="styles.css" />
   <link
     rel="stylesheet"
@@ -16,23 +16,18 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script
-    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-    integrity="sha256-d2Zg8VqrWUZWM8A6eF0gPLD+F2T0k7oWf1qYbPo0p9M="
-    crossorigin="anonymous"
-  ></script>
 </head>
 <body>
   <header class="app-header">
     <div>
-      <h1>Theyr Weather Routing Analyzer</h1>
-      <p>Explore optimization runs, visualize best routes, and inspect pareto fronts.</p>
+      <h1>Theyr Voyage Viewer</h1>
+      <p>POST /Voyage with your bearer token and visualize the returned routes.</p>
     </div>
-    <div class="status" id="statusPill">Disconnected</div>
+    <div class="status" id="statusPill">Token missing</div>
   </header>
 
   <main>
-    <section class="panel config-panel">
+    <section class="panel">
       <h2>Connection</h2>
       <div class="grid">
         <label>
@@ -40,100 +35,37 @@
           <input id="baseUrl" type="url" placeholder="https://api.t-vos.com/v1.23" />
         </label>
         <label>
-          Access Key (static)
-          <input id="accessKey" type="text" placeholder="Provided access key" />
-        </label>
-        <label>
-          Token (hourly)
-          <input id="token" type="text" placeholder="Paste generated token" />
-        </label>
-        <label>
-          Runs endpoint
-          <input id="runsEndpoint" type="text" placeholder="/weather-routing/optimizations" />
-        </label>
-        <label>
-          Run details endpoint
-          <input id="runDetailsEndpoint" type="text" placeholder="/weather-routing/optimizations/{runId}" />
-        </label>
-        <label>
-          Pareto endpoint
-          <input id="paretoEndpoint" type="text" placeholder="/weather-routing/optimizations/{runId}/pareto" />
-        </label>
-        <label>
-          Route endpoint
-          <input id="routeEndpoint" type="text" placeholder="/weather-routing/routes/{routeId}" />
-        </label>
-        <label>
-          Token activation endpoint
-          <input id="tokenEndpoint" type="text" placeholder="/token/activate" />
+          Bearer token
+          <input id="token" type="text" placeholder="Paste your token" />
         </label>
         <label>
           Voyage endpoint
           <input id="voyageEndpoint" type="text" placeholder="/Voyage" />
         </label>
       </div>
-      <div class="actions">
-        <button id="saveConfig">Save config</button>
-        <button id="loadSwagger">Load from Swagger</button>
-        <button id="loadRuns" class="primary">Load runs</button>
-      </div>
-      <p class="helper">The access key stays in code; only the hourly token should be pasted here.</p>
-    </section>
-
-    <section class="panel run-panel">
-      <h2>Optimization Runs</h2>
-      <div class="run-controls">
-        <label>
-          Run
-          <select id="runsSelect">
-            <option value="">Select a run...</option>
-          </select>
-        </label>
-        <button id="loadRun" class="primary">Load run</button>
-      </div>
-      <div class="metrics" id="runMetrics"></div>
-    </section>
-
-    <section class="panel voyage-panel">
-      <h2>Voyages</h2>
-      <div class="run-controls">
-        <button id="activateToken">Activate token</button>
-        <button id="loadVoyages" class="primary">Load voyages</button>
-      </div>
-      <label class="voyage-payload">
+      <label class="payload">
         Voyage request payload (JSON)
         <textarea id="voyagePayload" rows="4" placeholder='{"page":1,"pageSize":50}'></textarea>
       </label>
-      <ul class="voyage-list" id="voyageList"></ul>
-    </section>
-
-    <section class="panel map-panel">
-      <h2>Route Map</h2>
-      <div id="map"></div>
-      <div class="legend">
-        <span class="legend-item"><span class="dot best"></span>Best route</span>
-        <span class="legend-item"><span class="dot pareto"></span>Pareto route</span>
+      <div class="actions">
+        <button id="saveConfig">Save config</button>
+        <button id="loadVoyages" class="primary">Load voyages</button>
       </div>
     </section>
 
-    <section class="panel pareto-panel">
-      <div class="pareto-header">
-        <h2>Pareto Front</h2>
-        <button id="refreshPareto">Refresh pareto</button>
-      </div>
-      <div class="pareto-content">
-        <canvas id="paretoChart" aria-label="Pareto scatter plot" role="img"></canvas>
-        <div class="pareto-list">
-          <h3>Routes</h3>
-          <ul id="paretoRoutes"></ul>
+    <section class="panel">
+      <h2>Voyage Results</h2>
+      <div class="layout">
+        <div>
+          <div id="map"></div>
+        </div>
+        <div>
+          <h3>Voyages</h3>
+          <ul id="voyageList" class="voyage-list"></ul>
         </div>
       </div>
     </section>
   </main>
-
-  <footer>
-    <p>Powered by Theyr API · Keep your token refreshed every hour.</p>
-  </footer>
 
   <script src="app.js"></script>
 </body>

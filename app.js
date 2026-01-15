@@ -1,58 +1,32 @@
 const DEFAULT_CONFIG = {
   baseUrl: "https://api.t-vos.com/v1.23",
-  accessKey: "YOUR_ACCESS_KEY",
   token: "",
-  endpoints: {
-    runs: "/weather-routing/optimizations",
-    runDetails: "/weather-routing/optimizations/{runId}",
-    pareto: "/weather-routing/optimizations/{runId}/pareto",
-    route: "/weather-routing/routes/{routeId}",
-    tokenActivate: "/token/activate",
-    voyage: "/Voyage",
-  },
+  endpoint: "/Voyage",
 };
 
-const STORAGE_KEY = "theyr-routing-config";
+const STORAGE_KEY = "theyr-voyage-config";
 
 const elements = {
   baseUrl: document.getElementById("baseUrl"),
-  accessKey: document.getElementById("accessKey"),
   token: document.getElementById("token"),
-  runsEndpoint: document.getElementById("runsEndpoint"),
-  runDetailsEndpoint: document.getElementById("runDetailsEndpoint"),
-  paretoEndpoint: document.getElementById("paretoEndpoint"),
-  routeEndpoint: document.getElementById("routeEndpoint"),
-  tokenEndpoint: document.getElementById("tokenEndpoint"),
   voyageEndpoint: document.getElementById("voyageEndpoint"),
-  saveConfig: document.getElementById("saveConfig"),
-  loadSwagger: document.getElementById("loadSwagger"),
-  loadRuns: document.getElementById("loadRuns"),
-  runsSelect: document.getElementById("runsSelect"),
-  loadRun: document.getElementById("loadRun"),
-  runMetrics: document.getElementById("runMetrics"),
-  statusPill: document.getElementById("statusPill"),
-  refreshPareto: document.getElementById("refreshPareto"),
-  paretoRoutes: document.getElementById("paretoRoutes"),
-  activateToken: document.getElementById("activateToken"),
-  loadVoyages: document.getElementById("loadVoyages"),
   voyagePayload: document.getElementById("voyagePayload"),
+  saveConfig: document.getElementById("saveConfig"),
+  loadVoyages: document.getElementById("loadVoyages"),
   voyageList: document.getElementById("voyageList"),
+  statusPill: document.getElementById("statusPill"),
 };
 
 let config = loadConfig();
 let map;
-let bestLayer;
-let paretoLayer;
-let paretoChart;
-let currentRunId = null;
-let paretoItems = [];
+let routeLayer;
+let voyages = [];
 
 init();
 
 function init() {
   hydrateInputs();
   initMap();
-  initChart();
   bindEvents();
   updateStatus(!!config.token);
 }
@@ -64,16 +38,7 @@ function bindEvents() {
     updateStatus(!!config.token);
   });
 
-  elements.loadRuns.addEventListener("click", loadRuns);
-  elements.loadRun.addEventListener("click", loadRun);
-  elements.loadSwagger.addEventListener("click", loadSwaggerEndpoints);
-  elements.activateToken.addEventListener("click", activateToken);
   elements.loadVoyages.addEventListener("click", loadVoyages);
-  elements.refreshPareto.addEventListener("click", () => {
-    if (currentRunId) {
-      loadPareto(currentRunId);
-    }
-  });
 }
 
 function initMap() {
@@ -82,56 +47,7 @@ function initMap() {
     maxZoom: 18,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
-  bestLayer = L.layerGroup().addTo(map);
-  paretoLayer = L.layerGroup().addTo(map);
-}
-
-function initChart() {
-  const ctx = document.getElementById("paretoChart");
-  paretoChart = new Chart(ctx, {
-    type: "scatter",
-    data: {
-      datasets: [
-        {
-          label: "Pareto front",
-          data: [],
-          backgroundColor: "#f97316",
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: {
-          display: true,
-        },
-      },
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: "Best time",
-          },
-        },
-        y: {
-          title: {
-            display: true,
-            text: "FOA",
-          },
-        },
-      },
-      onClick: (_, elementsAtEvent) => {
-        if (!elementsAtEvent.length) {
-          return;
-        }
-        const index = elementsAtEvent[0].index;
-        const item = paretoItems[index];
-        if (item) {
-          selectParetoRoute(item, index);
-        }
-      },
-    },
-  });
+  routeLayer = L.layerGroup().addTo(map);
 }
 
 function loadConfig() {
@@ -153,52 +69,31 @@ function saveConfig(nextConfig) {
 
 function hydrateInputs() {
   elements.baseUrl.value = config.baseUrl;
-  elements.accessKey.value = config.accessKey;
   elements.token.value = config.token;
-  elements.runsEndpoint.value = config.endpoints.runs;
-  elements.runDetailsEndpoint.value = config.endpoints.runDetails;
-  elements.paretoEndpoint.value = config.endpoints.pareto;
-  elements.routeEndpoint.value = config.endpoints.route;
-  elements.tokenEndpoint.value = config.endpoints.tokenActivate;
-  elements.voyageEndpoint.value = config.endpoints.voyage;
+  elements.voyageEndpoint.value = config.endpoint;
 }
 
 function readConfigFromInputs() {
   return {
     baseUrl: elements.baseUrl.value.trim(),
-    accessKey: elements.accessKey.value.trim(),
     token: elements.token.value.trim(),
-    endpoints: {
-      runs: elements.runsEndpoint.value.trim(),
-      runDetails: elements.runDetailsEndpoint.value.trim(),
-      pareto: elements.paretoEndpoint.value.trim(),
-      route: elements.routeEndpoint.value.trim(),
-      tokenActivate: elements.tokenEndpoint.value.trim(),
-      voyage: elements.voyageEndpoint.value.trim(),
-    },
+    endpoint: elements.voyageEndpoint.value.trim(),
   };
 }
 
 function updateStatus(isConnected) {
-  elements.statusPill.textContent = isConnected ? "Token set" : "Disconnected";
+  elements.statusPill.textContent = isConnected ? "Token set" : "Token missing";
   elements.statusPill.classList.toggle("connected", isConnected);
 }
 
-function buildUrl(path, params = {}) {
-  let finalPath = path;
-  Object.entries(params).forEach(([key, value]) => {
-    finalPath = finalPath.replace(`{${key}}`, encodeURIComponent(value));
-  });
-  return `${config.baseUrl.replace(/\/$/, "")}${finalPath}`;
+function buildUrl(path) {
+  return `${config.baseUrl.replace(/\/$/, "")}${path}`;
 }
 
 async function fetchJson(url, options = {}) {
   const headers = {
     "Content-Type": "application/json",
   };
-  if (config.accessKey) {
-    headers["X-API-Key"] = config.accessKey;
-  }
   if (config.token) {
     headers.Authorization = `Bearer ${config.token}`;
   }
@@ -208,71 +103,17 @@ async function fetchJson(url, options = {}) {
     headers: { ...headers, ...options.headers },
     body: options.body ?? null,
   });
+
   if (!response.ok) {
     const message = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${message}`);
   }
+
   if (response.status === 204) {
     return null;
   }
+
   return response.json();
-}
-
-async function loadRuns() {
-  setLoading(elements.loadRuns, true);
-  try {
-    config = readConfigFromInputs();
-    saveConfig(config);
-    const url = buildUrl(config.endpoints.runs);
-    const data = await fetchJson(url);
-    const runs = normalizeArray(data, ["runs", "items", "data", "results"]) || [];
-    updateRunsSelect(runs);
-    updateStatus(true);
-  } catch (error) {
-    console.error(error);
-    alert(`Failed to load runs: ${error.message}`);
-  } finally {
-    setLoading(elements.loadRuns, false);
-  }
-}
-
-async function loadSwaggerEndpoints() {
-  setLoading(elements.loadSwagger, true);
-  try {
-    config = readConfigFromInputs();
-    saveConfig(config);
-    const swaggerUrl = `${config.baseUrl.replace(/\/$/, "")}/swagger/v1/swagger.json`;
-    const data = await fetchJson(swaggerUrl);
-    const endpoints = extractEndpointsFromSwagger(data);
-    if (!endpoints) {
-      alert("Could not infer endpoints from the swagger document.");
-      return;
-    }
-    config.endpoints = { ...config.endpoints, ...endpoints };
-    hydrateInputs();
-    saveConfig(config);
-  } catch (error) {
-    console.error(error);
-    alert(`Failed to load swagger: ${error.message}`);
-  } finally {
-    setLoading(elements.loadSwagger, false);
-  }
-}
-
-async function activateToken() {
-  setLoading(elements.activateToken, true);
-  try {
-    config = readConfigFromInputs();
-    saveConfig(config);
-    const url = buildUrl(config.endpoints.tokenActivate);
-    await fetchJson(url, { method: "POST" });
-    updateStatus(true);
-  } catch (error) {
-    console.error(error);
-    alert(`Failed to activate token: ${error.message}`);
-  } finally {
-    setLoading(elements.activateToken, false);
-  }
 }
 
 async function loadVoyages() {
@@ -280,14 +121,18 @@ async function loadVoyages() {
   try {
     config = readConfigFromInputs();
     saveConfig(config);
-    const url = buildUrl(config.endpoints.voyage);
+    const url = buildUrl(config.endpoint);
     const payload = parseJsonPayload(elements.voyagePayload.value);
     const data = await fetchJson(url, {
       method: "POST",
       body: payload ? JSON.stringify(payload) : null,
     });
-    const voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
+    voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
     updateVoyageList(voyages);
+    updateStatus(!!config.token);
+    if (voyages.length > 0) {
+      selectVoyage(voyages[0], 0);
+    }
   } catch (error) {
     console.error(error);
     alert(`Failed to load voyages: ${error.message}`);
@@ -296,59 +141,12 @@ async function loadVoyages() {
   }
 }
 
-function updateRunsSelect(runs) {
-  elements.runsSelect.innerHTML = "<option value=\"\">Select a run...</option>";
-  runs.forEach((run) => {
-    const option = document.createElement("option");
-    option.value = run.id || run.runId || run.uuid || run.name;
-    option.textContent = run.name || run.title || `Run ${option.value}`;
-    option.dataset.payload = JSON.stringify(run);
-    elements.runsSelect.appendChild(option);
-  });
-}
-
-async function loadRun() {
-  const runId = elements.runsSelect.value;
-  if (!runId) {
-    alert("Select a run first.");
-    return;
+function parseJsonPayload(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
   }
-
-  setLoading(elements.loadRun, true);
-  try {
-    config = readConfigFromInputs();
-    saveConfig(config);
-    const url = buildUrl(config.endpoints.runDetails, { runId });
-    const data = await fetchJson(url);
-    currentRunId = runId;
-    const bestRoute = findBestRoute(data);
-    if (bestRoute) {
-      renderRoute(bestRoute, { color: "#0ea5e9" }, bestLayer);
-      updateMetrics(bestRoute);
-    }
-    await loadPareto(runId);
-  } catch (error) {
-    console.error(error);
-    alert(`Failed to load run: ${error.message}`);
-  } finally {
-    setLoading(elements.loadRun, false);
-  }
-}
-
-async function loadPareto(runId) {
-  setLoading(elements.refreshPareto, true);
-  try {
-    const url = buildUrl(config.endpoints.pareto, { runId });
-    const data = await fetchJson(url);
-    paretoItems = normalizeArray(data, ["pareto", "paretoFront", "routes", "items", "data"]) || [];
-    updateParetoChart(paretoItems);
-    updateParetoList(paretoItems);
-  } catch (error) {
-    console.error(error);
-    alert(`Failed to load pareto front: ${error.message}`);
-  } finally {
-    setLoading(elements.refreshPareto, false);
-  }
+  return JSON.parse(trimmed);
 }
 
 function normalizeArray(data, keys) {
@@ -363,144 +161,57 @@ function normalizeArray(data, keys) {
   return null;
 }
 
-function findBestRoute(data) {
-  if (!data) {
-    return null;
-  }
-  if (data.bestRoute) {
-    return data.bestRoute;
-  }
-  if (data.optimizedRoute) {
-    return data.optimizedRoute;
-  }
-  if (Array.isArray(data.routes)) {
-    return data.routes[0];
-  }
-  return data.route || null;
-}
-
-function extractEndpointsFromSwagger(swagger) {
-  if (!swagger || !swagger.paths) {
-    return null;
-  }
-  const paths = Object.keys(swagger.paths);
-  if (!paths.length) {
-    return null;
-  }
-  const runs = findSwaggerPath(paths, [/optimizations/i], [/pareto/i, /route/i, /routes/i, /{runId}/i]);
-  const runDetails = findSwaggerPath(paths, [/optimizations/i, /\{runId\}/i], [/pareto/i]);
-  const pareto = findSwaggerPath(paths, [/pareto/i], []);
-  const route = findSwaggerPath(paths, [/routes?/i, /\{routeId\}/i], []);
-  const tokenActivate = findSwaggerPath(paths, [/token/i, /activate/i], []);
-  const voyage = findSwaggerPath(paths, [/voyage/i], []);
-  return {
-    runs: runs ?? config.endpoints.runs,
-    runDetails: runDetails ?? config.endpoints.runDetails,
-    pareto: pareto ?? config.endpoints.pareto,
-    route: route ?? config.endpoints.route,
-    tokenActivate: tokenActivate ?? config.endpoints.tokenActivate,
-    voyage: voyage ?? config.endpoints.voyage,
-  };
-}
-
-function findSwaggerPath(paths, mustIncludePatterns, mustExcludePatterns) {
-  return (
-    paths.find((path) => {
-      const matchesInclude = mustIncludePatterns.every((pattern) => pattern.test(path));
-      const matchesExclude = mustExcludePatterns.some((pattern) => pattern.test(path));
-      return matchesInclude && !matchesExclude;
-    }) ?? null
-  );
-}
-
-function updateMetrics(route) {
-  elements.runMetrics.innerHTML = "";
-  const metrics = {
-    FOA: findMetric(route, ["foa", "fuel", "fuelConsumption"]),
-    "Best time": findMetric(route, ["best_time", "time", "duration", "eta"]),
-    Distance: findMetric(route, ["distance", "length", "nm"]),
-    "Avg speed": findMetric(route, ["avg_speed", "speed", "avgSpeed"]),
-  };
-
-  Object.entries(metrics).forEach(([label, value]) => {
-    if (value === null || value === undefined) {
-      return;
-    }
-    const card = document.createElement("div");
-    card.className = "metric-card";
-    card.innerHTML = `${label}<span>${value}</span>`;
-    elements.runMetrics.appendChild(card);
-  });
-}
-
-function parseJsonPayload(value) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return JSON.parse(trimmed);
-}
-
-function updateVoyageList(voyages) {
+function updateVoyageList(items) {
   elements.voyageList.innerHTML = "";
-  if (!voyages.length) {
+  if (!items.length) {
     const emptyItem = document.createElement("li");
     emptyItem.textContent = "No voyages returned.";
     elements.voyageList.appendChild(emptyItem);
     return;
   }
-  voyages.forEach((voyage) => {
-    const item = document.createElement("li");
-    const name = voyage.name || voyage.title || voyage.id || "Voyage";
+  items.forEach((voyage, index) => {
+    const button = document.createElement("button");
+    const name = voyage.name || voyage.title || voyage.id || `Voyage ${index + 1}`;
     const status = voyage.status || voyage.state || "Unknown status";
-    item.innerHTML = `<strong>${name}</strong><br /><span>${status}</span>`;
-    elements.voyageList.appendChild(item);
+    button.textContent = `${name} · ${status}`;
+    button.addEventListener("click", () => selectVoyage(voyage, index));
+    elements.voyageList.appendChild(button);
   });
 }
 
-function findMetric(route, keys) {
-  if (!route) {
-    return null;
-  }
-  for (const key of keys) {
-    if (route[key] !== undefined) {
-      return route[key];
-    }
-    if (route.metrics && route.metrics[key] !== undefined) {
-      return route.metrics[key];
-    }
-    if (route.summary && route.summary[key] !== undefined) {
-      return route.summary[key];
-    }
-  }
-  return null;
+function selectVoyage(voyage, index) {
+  const buttons = elements.voyageList.querySelectorAll("button");
+  buttons.forEach((button, idx) => {
+    button.classList.toggle("active", idx === index);
+  });
+  renderRoute(voyage);
 }
 
-function renderRoute(route, style, layerGroup) {
-  layerGroup.clearLayers();
-  const coordinates = extractCoordinates(route);
+function renderRoute(voyage) {
+  routeLayer.clearLayers();
+  const coordinates = extractCoordinates(voyage);
   if (!coordinates.length) {
     return;
   }
-  const polyline = L.polyline(coordinates, { ...style, weight: 4 }).addTo(layerGroup);
+  const polyline = L.polyline(coordinates, { color: "#1f6feb", weight: 4 }).addTo(routeLayer);
   map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
 }
 
-function extractCoordinates(route) {
-  if (!route) {
+function extractCoordinates(voyage) {
+  if (!voyage) {
     return [];
   }
-  if (route.geometry && Array.isArray(route.geometry.coordinates)) {
-    return route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+  if (voyage.geometry && Array.isArray(voyage.geometry.coordinates)) {
+    return voyage.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
   }
-  if (Array.isArray(route.coordinates)) {
-    return route.coordinates.map((point) => normalizePoint(point)).filter(Boolean);
+  if (Array.isArray(voyage.coordinates)) {
+    return voyage.coordinates.map((point) => normalizePoint(point)).filter(Boolean);
   }
-  if (Array.isArray(route.path)) {
-    return route.path.map((point) => normalizePoint(point)).filter(Boolean);
+  if (Array.isArray(voyage.path)) {
+    return voyage.path.map((point) => normalizePoint(point)).filter(Boolean);
   }
-  if (Array.isArray(route.waypoints)) {
-    return route.waypoints.map((point) => normalizePoint(point)).filter(Boolean);
+  if (Array.isArray(voyage.waypoints)) {
+    return voyage.waypoints.map((point) => normalizePoint(point)).filter(Boolean);
   }
   return [];
 }
@@ -518,59 +229,6 @@ function normalizePoint(point) {
     return [lat, lng];
   }
   return null;
-}
-
-function updateParetoChart(items) {
-  const dataset = items.map((item) => {
-    const xValue = findMetric(item, ["best_time", "time", "duration", "eta"]);
-    const yValue = findMetric(item, ["foa", "fuel", "fuelConsumption"]);
-    return {
-      x: xValue,
-      y: yValue,
-    };
-  });
-
-  paretoChart.data.datasets[0].data = dataset;
-  paretoChart.update();
-}
-
-function updateParetoList(items) {
-  elements.paretoRoutes.innerHTML = "";
-  items.forEach((item, index) => {
-    const button = document.createElement("button");
-    const routeLabel = item.name || item.routeName || item.id || `Route ${index + 1}`;
-    const time = findMetric(item, ["best_time", "time", "duration", "eta"]);
-    const foa = findMetric(item, ["foa", "fuel", "fuelConsumption"]);
-    button.textContent = `${routeLabel} · Time: ${time ?? "?"} · FOA: ${foa ?? "?"}`;
-    button.addEventListener("click", () => selectParetoRoute(item, index));
-    elements.paretoRoutes.appendChild(button);
-  });
-}
-
-async function selectParetoRoute(item, index) {
-  const buttons = elements.paretoRoutes.querySelectorAll("button");
-  buttons.forEach((button, idx) => {
-    button.classList.toggle("active", idx === index);
-  });
-
-  const routeId = item.routeId || item.id || item.uuid;
-  if (item.geometry || item.coordinates || item.path) {
-    renderRoute(item, { color: "#f97316" }, paretoLayer);
-    return;
-  }
-
-  if (!routeId) {
-    return;
-  }
-
-  try {
-    const url = buildUrl(config.endpoints.route, { routeId });
-    const data = await fetchJson(url);
-    renderRoute(data, { color: "#f97316" }, paretoLayer);
-  } catch (error) {
-    console.error(error);
-    alert(`Failed to load route ${routeId}: ${error.message}`);
-  }
 }
 
 function setLoading(button, isLoading) {
