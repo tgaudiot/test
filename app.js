@@ -283,7 +283,7 @@ async function loadComputations(voyageId) {
       config.computationsEndpoint.replace("{id}", encodeURIComponent(voyageId)),
       queryPayload
     );
-    const data = await fetchJson(url, { method: "POST" });
+    const data = await fetchJson(url, { method: "GET" });
     computations = normalizeArray(data, ["computations", "items", "data", "results"]) || [];
     updateComputationList(computations);
   } catch (error) {
