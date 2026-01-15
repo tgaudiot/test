@@ -83,6 +83,7 @@ label {
 
 input,
 select,
+textarea,
 button {
   font-size: 0.95rem;
   padding: 0.55rem 0.7rem;
@@ -92,7 +93,8 @@ button {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 2px solid var(--accent-soft);
   border-color: var(--accent);
 }
@@ -139,6 +141,31 @@ button:disabled {
   gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   margin-top: 1rem;
+}
+
+.voyage-payload {
+  margin-top: 1rem;
+}
+
+.voyage-payload textarea {
+  resize: vertical;
+  min-height: 90px;
+  font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.voyage-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.voyage-list li {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
 }
 
 .metric-card {

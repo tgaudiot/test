@@ -63,6 +63,14 @@
           Route endpoint
           <input id="routeEndpoint" type="text" placeholder="/weather-routing/routes/{routeId}" />
         </label>
+        <label>
+          Token activation endpoint
+          <input id="tokenEndpoint" type="text" placeholder="/token/activate" />
+        </label>
+        <label>
+          Voyage endpoint
+          <input id="voyageEndpoint" type="text" placeholder="/Voyage" />
+        </label>
       </div>
       <div class="actions">
         <button id="saveConfig">Save config</button>
@@ -84,6 +92,19 @@
         <button id="loadRun" class="primary">Load run</button>
       </div>
       <div class="metrics" id="runMetrics"></div>
+    </section>
+
+    <section class="panel voyage-panel">
+      <h2>Voyages</h2>
+      <div class="run-controls">
+        <button id="activateToken">Activate token</button>
+        <button id="loadVoyages" class="primary">Load voyages</button>
+      </div>
+      <label class="voyage-payload">
+        Voyage request payload (JSON)
+        <textarea id="voyagePayload" rows="4" placeholder='{"page":1,"pageSize":50}'></textarea>
+      </label>
+      <ul class="voyage-list" id="voyageList"></ul>
     </section>
 
     <section class="panel map-panel">

@@ -7,6 +7,8 @@ const DEFAULT_CONFIG = {
     runDetails: "/weather-routing/optimizations/{runId}",
     pareto: "/weather-routing/optimizations/{runId}/pareto",
     route: "/weather-routing/routes/{routeId}",
+    tokenActivate: "/token/activate",
+    voyage: "/Voyage",
   },
 };
 
@@ -20,6 +22,8 @@ const elements = {
   runDetailsEndpoint: document.getElementById("runDetailsEndpoint"),
   paretoEndpoint: document.getElementById("paretoEndpoint"),
   routeEndpoint: document.getElementById("routeEndpoint"),
+  tokenEndpoint: document.getElementById("tokenEndpoint"),
+  voyageEndpoint: document.getElementById("voyageEndpoint"),
   saveConfig: document.getElementById("saveConfig"),
   loadSwagger: document.getElementById("loadSwagger"),
   loadRuns: document.getElementById("loadRuns"),
@@ -29,6 +33,10 @@ const elements = {
   statusPill: document.getElementById("statusPill"),
   refreshPareto: document.getElementById("refreshPareto"),
   paretoRoutes: document.getElementById("paretoRoutes"),
+  activateToken: document.getElementById("activateToken"),
+  loadVoyages: document.getElementById("loadVoyages"),
+  voyagePayload: document.getElementById("voyagePayload"),
+  voyageList: document.getElementById("voyageList"),
 };
 
 let config = loadConfig();
@@ -59,6 +67,8 @@ function bindEvents() {
   elements.loadRuns.addEventListener("click", loadRuns);
   elements.loadRun.addEventListener("click", loadRun);
   elements.loadSwagger.addEventListener("click", loadSwaggerEndpoints);
+  elements.activateToken.addEventListener("click", activateToken);
+  elements.loadVoyages.addEventListener("click", loadVoyages);
   elements.refreshPareto.addEventListener("click", () => {
     if (currentRunId) {
       loadPareto(currentRunId);
@@ -149,6 +159,8 @@ function hydrateInputs() {
   elements.runDetailsEndpoint.value = config.endpoints.runDetails;
   elements.paretoEndpoint.value = config.endpoints.pareto;
   elements.routeEndpoint.value = config.endpoints.route;
+  elements.tokenEndpoint.value = config.endpoints.tokenActivate;
+  elements.voyageEndpoint.value = config.endpoints.voyage;
 }
 
 function readConfigFromInputs() {
@@ -161,6 +173,8 @@ function readConfigFromInputs() {
       runDetails: elements.runDetailsEndpoint.value.trim(),
       pareto: elements.paretoEndpoint.value.trim(),
       route: elements.routeEndpoint.value.trim(),
+      tokenActivate: elements.tokenEndpoint.value.trim(),
+      voyage: elements.voyageEndpoint.value.trim(),
     },
   };
 }
@@ -178,7 +192,7 @@ function buildUrl(path, params = {}) {
   return `${config.baseUrl.replace(/\/$/, "")}${finalPath}`;
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, options = {}) {
   const headers = {
     "Content-Type": "application/json",
   };
@@ -189,10 +203,17 @@ async function fetchJson(url) {
     headers.Authorization = `Bearer ${config.token}`;
   }
 
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, {
+    method: options.method ?? "GET",
+    headers: { ...headers, ...options.headers },
+    body: options.body ?? null,
+  });
   if (!response.ok) {
     const message = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${message}`);
+  }
+  if (response.status === 204) {
+    return null;
   }
   return response.json();
 }
@@ -235,6 +256,43 @@ async function loadSwaggerEndpoints() {
     alert(`Failed to load swagger: ${error.message}`);
   } finally {
     setLoading(elements.loadSwagger, false);
+  }
+}
+
+async function activateToken() {
+  setLoading(elements.activateToken, true);
+  try {
+    config = readConfigFromInputs();
+    saveConfig(config);
+    const url = buildUrl(config.endpoints.tokenActivate);
+    await fetchJson(url, { method: "POST" });
+    updateStatus(true);
+  } catch (error) {
+    console.error(error);
+    alert(`Failed to activate token: ${error.message}`);
+  } finally {
+    setLoading(elements.activateToken, false);
+  }
+}
+
+async function loadVoyages() {
+  setLoading(elements.loadVoyages, true);
+  try {
+    config = readConfigFromInputs();
+    saveConfig(config);
+    const url = buildUrl(config.endpoints.voyage);
+    const payload = parseJsonPayload(elements.voyagePayload.value);
+    const data = await fetchJson(url, {
+      method: "POST",
+      body: payload ? JSON.stringify(payload) : null,
+    });
+    const voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
+    updateVoyageList(voyages);
+  } catch (error) {
+    console.error(error);
+    alert(`Failed to load voyages: ${error.message}`);
+  } finally {
+    setLoading(elements.loadVoyages, false);
   }
 }
 
@@ -333,11 +391,15 @@ function extractEndpointsFromSwagger(swagger) {
   const runDetails = findSwaggerPath(paths, [/optimizations/i, /\{runId\}/i], [/pareto/i]);
   const pareto = findSwaggerPath(paths, [/pareto/i], []);
   const route = findSwaggerPath(paths, [/routes?/i, /\{routeId\}/i], []);
+  const tokenActivate = findSwaggerPath(paths, [/token/i, /activate/i], []);
+  const voyage = findSwaggerPath(paths, [/voyage/i], []);
   return {
     runs: runs ?? config.endpoints.runs,
     runDetails: runDetails ?? config.endpoints.runDetails,
     pareto: pareto ?? config.endpoints.pareto,
     route: route ?? config.endpoints.route,
+    tokenActivate: tokenActivate ?? config.endpoints.tokenActivate,
+    voyage: voyage ?? config.endpoints.voyage,
   };
 }
 
@@ -368,6 +430,31 @@ function updateMetrics(route) {
     card.className = "metric-card";
     card.innerHTML = `${label}<span>${value}</span>`;
     elements.runMetrics.appendChild(card);
+  });
+}
+
+function parseJsonPayload(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return JSON.parse(trimmed);
+}
+
+function updateVoyageList(voyages) {
+  elements.voyageList.innerHTML = "";
+  if (!voyages.length) {
+    const emptyItem = document.createElement("li");
+    emptyItem.textContent = "No voyages returned.";
+    elements.voyageList.appendChild(emptyItem);
+    return;
+  }
+  voyages.forEach((voyage) => {
+    const item = document.createElement("li");
+    const name = voyage.name || voyage.title || voyage.id || "Voyage";
+    const status = voyage.status || voyage.state || "Unknown status";
+    item.innerHTML = `<strong>${name}</strong><br /><span>${status}</span>`;
+    elements.voyageList.appendChild(item);
   });
 }
 
