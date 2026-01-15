@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Surf Trip Planner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <h1>Surf Trip Planner</h1>
+      <p>Discover the best surf spots for your next adventure with real-time marine forecasts and travel estimates.</p>
+      <div class="controls">
+        <button id="locate-btn" class="primary">Use my location</button>
+        <div class="input-group">
+          <label for="location-input">...or search by city</label>
+          <input type="text" id="location-input" placeholder="e.g. Lisbon" />
+          <button id="search-btn" class="secondary">Search</button>
+        </div>
+        <div id="status" role="status" aria-live="polite"></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="integrations">
+        <h2>Live data integrations</h2>
+        <p>
+          Provide your own API credentials to fetch Copernicus Marine forecasts, real flight offers, and SNCF journeys alongside the
+          distance-based heuristics. Keys are stored locally in this browser only.
+        </p>
+        <p class="hint">
+          Running the optional Python backend lets you keep credentials on the server instead. Configure them with
+          <code>COPERNICUS_USERNAME</code>, <code>COPERNICUS_PASSWORD</code>, <code>COPERNICUS_DATASET_ID</code>
+          (or legacy <code>COPERNICUS_PRODUCT_ID</code>), <code>COPERNICUS_VARIABLES</code>,
+          <code>COPERNICUS_RANGE_HOURS</code>, <code>RAPIDAPI_HOST</code>, <code>RAPIDAPI_KEY</code>, and
+          <code>SNCF_TOKEN</code> environment variables before starting the app.
+        </p>
+        <form class="integrations-form" autocomplete="off">
+          <fieldset>
+            <legend>Marine forecast (Copernicus Marine Service)</legend>
+            <label for="copernicus-username-input">Copernicus username</label>
+            <input
+              id="copernicus-username-input"
+              name="copernicus-username"
+              placeholder="Copernicus Marine account username"
+              autocapitalize="none"
+            />
+            <label for="copernicus-password-input">Copernicus password</label>
+            <input
+              id="copernicus-password-input"
+              name="copernicus-password"
+              type="password"
+              placeholder="Copernicus Marine account password"
+            />
+            <label for="copernicus-product-input">Dataset ID</label>
+            <input
+              id="copernicus-product-input"
+              name="copernicus-product"
+              placeholder="cmems_mod_glo_wav_anfc_0.083deg_PT3H-i"
+            />
+            <label for="copernicus-variables-input">Variables (comma separated)</label>
+            <input
+              id="copernicus-variables-input"
+              name="copernicus-variables"
+              placeholder="significant_wave_height,wind_speed,wind_from_direction,sea_surface_temperature"
+            />
+            <label for="copernicus-endpoint-input">Point endpoint (browser fallback)</label>
+            <input
+              id="copernicus-endpoint-input"
+              name="copernicus-endpoint"
+              placeholder="https://nrt.cmems-du.eu/api/v1/forecast/point"
+            />
+            <label for="copernicus-hours-input">Forecast horizon (hours)</label>
+            <input
+              id="copernicus-hours-input"
+              name="copernicus-hours"
+              type="number"
+              min="1"
+              max="240"
+              step="1"
+              placeholder="96"
+            />
+          </fieldset>
+          <fieldset>
+            <legend>Flights (Google Flights API via RapidAPI)</legend>
+            <label for="origin-airport-input">Origin airport (IATA code)</label>
+            <input
+              id="origin-airport-input"
+              name="origin-airport"
+              placeholder="e.g. CDG"
+              maxlength="3"
+              inputmode="latin"
+              autocapitalize="characters"
+            />
+            <label for="flight-host-input">RapidAPI host</label>
+            <input
+              id="flight-host-input"
+              name="flight-host"
+              placeholder="google-flights43.p.rapidapi.com"
+            />
+            <label for="flight-key-input">RapidAPI key</label>
+            <input id="flight-key-input" name="flight-key" type="password" placeholder="Your RapidAPI key" />
+          </fieldset>
+          <fieldset>
+            <legend>Rail (SNCF API)</legend>
+            <label for="sncf-key-input">SNCF API token</label>
+            <input id="sncf-key-input" name="sncf-key" type="password" placeholder="api.sncf.com token" />
+          </fieldset>
+          <p class="hint">
+            Need keys? Sign up for
+            <a href="https://data.marine.copernicus.eu/register" target="_blank" rel="noreferrer">Copernicus Marine</a>,
+            <a href="https://rapidapi.com/apidojo/api/google-flights/" target="_blank" rel="noreferrer">RapidAPI</a>, and
+            <a href="https://www.digital.sncf.com/startup/api" target="_blank" rel="noreferrer">SNCF</a> access.
+          </p>
+        </form>
+      </section>
+
+      <section>
+        <h2>Featured surf spots</h2>
+        <p>
+          Select a spot to reveal forecast details and travel cost estimates. Forecasts use the Copernicus Marine API when
+          credentials are available, with an automatic Open-Meteo fallback.
+        </p>
+        <div id="spots" class="spot-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="tips">
+        <h2>Planning tips</h2>
+        <ul>
+          <li>Check the swell height and wind direction for the hours you plan to surf.</li>
+          <li>Use the price estimates to compare rail and flight options&mdash;they are based on average regional fares per kilometer.</li>
+          <li>Book flexible tickets and pack according to the temperature trends displayed for each location.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Built with ❤️ for surfers. Weather data courtesy of the
+        <a href="https://marine.copernicus.eu/" target="_blank" rel="noreferrer">Copernicus Marine Service</a>
+        (with an Open-Meteo fallback).
+      </p>
+    </footer>
+
+    <template id="spot-template">
+      <article class="spot-card">
+        <header>
+          <h3 class="spot-name"></h3>
+          <p class="spot-location"></p>
+        </header>
+        <div class="spot-body">
+          <div class="forecast"></div>
+          <div class="travel"></div>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
