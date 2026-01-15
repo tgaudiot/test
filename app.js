@@ -5,6 +5,7 @@ const DEFAULT_CONFIG = {
   computationsEndpoint: "/Voyage/{id}/computations",
   routeEndpoint:
     "/VoyageRoute/voyageID?speed=true&direction=true&operational=true&directionUnit=degree&speedUnit=kn&distanceUnit=nm&illustrative=true&computation=computationID",
+  computationsQuery: "{\"metadata\":true}",
 };
 
 const STORAGE_KEY = "theyr-voyage-config";
@@ -14,6 +15,7 @@ const elements = {
   token: document.getElementById("token"),
   voyageEndpoint: document.getElementById("voyageEndpoint"),
   computationsEndpoint: document.getElementById("computationsEndpoint"),
+  computationsQuery: document.getElementById("computationsQuery"),
   routeEndpoint: document.getElementById("routeEndpoint"),
   voyagePayload: document.getElementById("voyagePayload"),
   saveConfig: document.getElementById("saveConfig"),
@@ -89,6 +91,7 @@ function hydrateInputs() {
   elements.token.value = config.token;
   elements.voyageEndpoint.value = config.endpoint;
   elements.computationsEndpoint.value = config.computationsEndpoint;
+  elements.computationsQuery.value = config.computationsQuery;
   elements.routeEndpoint.value = config.routeEndpoint;
   if (!elements.voyagePayload.value.trim()) {
     elements.voyagePayload.value = JSON.stringify({ split: 10, page: 1 }, null, 2);
@@ -102,6 +105,7 @@ function readConfigFromInputs() {
     token: elements.token.value.trim(),
     endpoint: elements.voyageEndpoint.value.trim(),
     computationsEndpoint: elements.computationsEndpoint.value.trim(),
+    computationsQuery: elements.computationsQuery.value.trim(),
     routeEndpoint: elements.routeEndpoint.value.trim(),
   };
 }
@@ -274,7 +278,11 @@ function selectVoyage(voyage, index) {
 
 async function loadComputations(voyageId) {
   try {
-    const url = buildUrl(config.computationsEndpoint.replace("{id}", encodeURIComponent(voyageId)));
+    const queryPayload = safeParseJson(config.computationsQuery) ?? {};
+    const url = buildUrlWithQuery(
+      config.computationsEndpoint.replace("{id}", encodeURIComponent(voyageId)),
+      queryPayload
+    );
     const data = await fetchJson(url, { method: "POST" });
     computations = normalizeArray(data, ["computations", "items", "data", "results"]) || [];
     updateComputationList(computations);
