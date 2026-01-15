@@ -71,6 +71,9 @@ function hydrateInputs() {
   elements.baseUrl.value = config.baseUrl;
   elements.token.value = config.token;
   elements.voyageEndpoint.value = config.endpoint;
+  if (!elements.voyagePayload.value.trim()) {
+    elements.voyagePayload.value = JSON.stringify({ split: 10, page: 1 }, null, 2);
+  }
 }
 
 function readConfigFromInputs() {
@@ -121,11 +124,10 @@ async function loadVoyages() {
   try {
     config = readConfigFromInputs();
     saveConfig(config);
-    const url = buildUrl(config.endpoint);
     const payload = parseJsonPayload(elements.voyagePayload.value);
+    const url = buildUrlWithQuery(config.endpoint, payload);
     const data = await fetchJson(url, {
-      method: "POST",
-      body: payload ? JSON.stringify(payload) : null,
+      method: "GET",
     });
     voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
     updateVoyageList(voyages);
@@ -147,6 +149,26 @@ function parseJsonPayload(value) {
     return null;
   }
   return JSON.parse(trimmed);
+}
+
+function buildUrlWithQuery(path, payload) {
+  const base = buildUrl(path);
+  if (!payload || typeof payload !== "object") {
+    return base;
+  }
+  const params = new URLSearchParams();
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => params.append(key, String(item)));
+      return;
+    }
+    params.append(key, String(value));
+  });
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
 }
 
 function normalizeArray(data, keys) {
