@@ -327,11 +327,38 @@ async function loadVoyageRoute(voyageId, computationId) {
   try {
     const url = buildVoyageRouteUrl(voyageId, computationId);
     const data = await fetchJson(url, { method: "GET" });
-    renderRoute(data);
+    const routeData = resolveRouteData(data);
+    renderRoute(routeData);
   } catch (error) {
     console.error(error);
     alert(`Failed to load route: ${error.message}`);
   }
+}
+
+function resolveRouteData(data) {
+  if (!data) {
+    return null;
+  }
+  if (
+    data.geometry ||
+    data.coordinates ||
+    data.path ||
+    data.waypoints ||
+    data.points ||
+    data.routePoints
+  ) {
+    return data;
+  }
+  if (data.route) {
+    return data.route;
+  }
+  if (data.data) {
+    return data.data;
+  }
+  if (Array.isArray(data.routes) && data.routes.length > 0) {
+    return data.routes[0];
+  }
+  return data;
 }
 
 function buildVoyageRouteUrl(voyageId, computationId) {
@@ -357,6 +384,12 @@ function extractCoordinates(voyage) {
   }
   if (voyage.geometry && Array.isArray(voyage.geometry.coordinates)) {
     return voyage.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+  }
+  if (Array.isArray(voyage.points)) {
+    return voyage.points.map((point) => normalizePoint(point)).filter(Boolean);
+  }
+  if (Array.isArray(voyage.routePoints)) {
+    return voyage.routePoints.map((point) => normalizePoint(point)).filter(Boolean);
   }
   if (Array.isArray(voyage.coordinates)) {
     return voyage.coordinates.map((point) => normalizePoint(point)).filter(Boolean);
