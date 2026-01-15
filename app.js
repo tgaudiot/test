@@ -13,6 +13,9 @@ const elements = {
   voyagePayload: document.getElementById("voyagePayload"),
   saveConfig: document.getElementById("saveConfig"),
   loadVoyages: document.getElementById("loadVoyages"),
+  prevPage: document.getElementById("prevPage"),
+  nextPage: document.getElementById("nextPage"),
+  pageNumber: document.getElementById("pageNumber"),
   voyageList: document.getElementById("voyageList"),
   statusPill: document.getElementById("statusPill"),
 };
@@ -39,6 +42,12 @@ function bindEvents() {
   });
 
   elements.loadVoyages.addEventListener("click", loadVoyages);
+  elements.prevPage.addEventListener("click", () => changePage(-1));
+  elements.nextPage.addEventListener("click", () => changePage(1));
+  elements.pageNumber.addEventListener("change", () => {
+    const page = Number(elements.pageNumber.value) || 1;
+    setPage(page);
+  });
 }
 
 function initMap() {
@@ -74,6 +83,7 @@ function hydrateInputs() {
   if (!elements.voyagePayload.value.trim()) {
     elements.voyagePayload.value = JSON.stringify({ split: 10, page: 1 }, null, 2);
   }
+  elements.pageNumber.value = getCurrentPage();
 }
 
 function readConfigFromInputs() {
@@ -87,6 +97,25 @@ function readConfigFromInputs() {
 function updateStatus(isConnected) {
   elements.statusPill.textContent = isConnected ? "Token set" : "Token missing";
   elements.statusPill.classList.toggle("connected", isConnected);
+}
+
+function getCurrentPage() {
+  const payload = safeParseJson(elements.voyagePayload.value);
+  return Number(payload?.page) || 1;
+}
+
+function setPage(page) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const payload = safeParseJson(elements.voyagePayload.value) ?? {};
+  payload.page = safePage;
+  elements.voyagePayload.value = JSON.stringify(payload, null, 2);
+  elements.pageNumber.value = safePage;
+  loadVoyages();
+}
+
+function changePage(delta) {
+  const current = getCurrentPage();
+  setPage(current + delta);
 }
 
 function buildUrl(path) {
@@ -132,6 +161,7 @@ async function loadVoyages() {
     voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
     updateVoyageList(voyages);
     updateStatus(!!config.token);
+    elements.pageNumber.value = getCurrentPage();
     if (voyages.length > 0) {
       selectVoyage(voyages[0], 0);
     }
@@ -149,6 +179,14 @@ function parseJsonPayload(value) {
     return null;
   }
   return JSON.parse(trimmed);
+}
+
+function safeParseJson(value) {
+  try {
+    return parseJsonPayload(value);
+  } catch (error) {
+    return null;
+  }
 }
 
 function buildUrlWithQuery(path, payload) {
@@ -195,7 +233,13 @@ function updateVoyageList(items) {
     const button = document.createElement("button");
     const name = voyage.name || voyage.title || voyage.id || `Voyage ${index + 1}`;
     const status = voyage.status || voyage.state || "Unknown status";
-    button.textContent = `${name} · ${status}`;
+    const description =
+      voyage.description ||
+      voyage.summary ||
+      voyage.routeDescription ||
+      voyage.route?.description ||
+      "No description provided.";
+    button.innerHTML = `${name} · ${status}<span class="description">${description}</span>`;
     button.addEventListener("click", () => selectVoyage(voyage, index));
     elements.voyageList.appendChild(button);
   });

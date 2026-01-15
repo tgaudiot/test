@@ -47,6 +47,16 @@
         Voyage request payload (JSON)
         <textarea id="voyagePayload" rows="4" placeholder='{"split":10,"page":1}'></textarea>
       </label>
+      <div class="pagination">
+        <button id="prevPage">Previous page</button>
+        <div class="page-info">
+          <label>
+            Page
+            <input id="pageNumber" type="number" min="1" value="1" />
+          </label>
+        </div>
+        <button id="nextPage">Next page</button>
+      </div>
       <div class="actions">
         <button id="saveConfig">Save config</button>
         <button id="loadVoyages" class="primary">Load voyages</button>
