@@ -2,6 +2,9 @@ const DEFAULT_CONFIG = {
   baseUrl: "https://api.t-vos.com/v1.23",
   token: "",
   endpoint: "/Voyage",
+  computationsEndpoint: "/Voyage/{id}/computations",
+  routeEndpoint:
+    "/VoyageRoute/voyageID?speed=true&direction=true&operational=true&directionUnit=degree&speedUnit=kn&distanceUnit=nm&illustrative=true&computation=computationID",
 };
 
 const STORAGE_KEY = "theyr-voyage-config";
@@ -10,6 +13,8 @@ const elements = {
   baseUrl: document.getElementById("baseUrl"),
   token: document.getElementById("token"),
   voyageEndpoint: document.getElementById("voyageEndpoint"),
+  computationsEndpoint: document.getElementById("computationsEndpoint"),
+  routeEndpoint: document.getElementById("routeEndpoint"),
   voyagePayload: document.getElementById("voyagePayload"),
   saveConfig: document.getElementById("saveConfig"),
   loadVoyages: document.getElementById("loadVoyages"),
@@ -17,6 +22,7 @@ const elements = {
   nextPage: document.getElementById("nextPage"),
   pageNumber: document.getElementById("pageNumber"),
   voyageList: document.getElementById("voyageList"),
+  computationList: document.getElementById("computationList"),
   statusPill: document.getElementById("statusPill"),
 };
 
@@ -24,6 +30,8 @@ let config = loadConfig();
 let map;
 let routeLayer;
 let voyages = [];
+let computations = [];
+let selectedVoyageId = null;
 
 init();
 
@@ -80,6 +88,8 @@ function hydrateInputs() {
   elements.baseUrl.value = config.baseUrl;
   elements.token.value = config.token;
   elements.voyageEndpoint.value = config.endpoint;
+  elements.computationsEndpoint.value = config.computationsEndpoint;
+  elements.routeEndpoint.value = config.routeEndpoint;
   if (!elements.voyagePayload.value.trim()) {
     elements.voyagePayload.value = JSON.stringify({ split: 10, page: 1 }, null, 2);
   }
@@ -91,6 +101,8 @@ function readConfigFromInputs() {
     baseUrl: elements.baseUrl.value.trim(),
     token: elements.token.value.trim(),
     endpoint: elements.voyageEndpoint.value.trim(),
+    computationsEndpoint: elements.computationsEndpoint.value.trim(),
+    routeEndpoint: elements.routeEndpoint.value.trim(),
   };
 }
 
@@ -160,6 +172,7 @@ async function loadVoyages() {
     });
     voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
     updateVoyageList(voyages);
+    updateComputationList([]);
     updateStatus(!!config.token);
     elements.pageNumber.value = getCurrentPage();
     if (voyages.length > 0) {
@@ -231,7 +244,8 @@ function updateVoyageList(items) {
   }
   items.forEach((voyage, index) => {
     const button = document.createElement("button");
-    const name = voyage.name || voyage.title || voyage.id || `Voyage ${index + 1}`;
+    const voyageId = voyage.id ?? voyage.voyageId ?? voyage.voyageID;
+    const name = voyage.name || voyage.title || voyageId || `Voyage ${index + 1}`;
     const status = voyage.status || voyage.state || "Unknown status";
     const description =
       voyage.description ||
@@ -250,7 +264,73 @@ function selectVoyage(voyage, index) {
   buttons.forEach((button, idx) => {
     button.classList.toggle("active", idx === index);
   });
+  selectedVoyageId = voyage.id ?? voyage.voyageId ?? voyage.voyageID;
+  updateComputationList([]);
   renderRoute(voyage);
+  if (selectedVoyageId) {
+    loadComputations(selectedVoyageId);
+  }
+}
+
+async function loadComputations(voyageId) {
+  try {
+    const url = buildUrl(config.computationsEndpoint.replace("{id}", encodeURIComponent(voyageId)));
+    const data = await fetchJson(url, { method: "POST" });
+    computations = normalizeArray(data, ["computations", "items", "data", "results"]) || [];
+    updateComputationList(computations);
+  } catch (error) {
+    console.error(error);
+    alert(`Failed to load computations: ${error.message}`);
+  }
+}
+
+function updateComputationList(items) {
+  elements.computationList.innerHTML = "";
+  if (!items.length) {
+    const emptyItem = document.createElement("li");
+    emptyItem.textContent = "No computations returned.";
+    elements.computationList.appendChild(emptyItem);
+    return;
+  }
+  items.forEach((computation, index) => {
+    const button = document.createElement("button");
+    const computationId = computation.id ?? computation.computationId ?? computation.computationID;
+    const name = computation.name || computation.title || computationId || `Computation ${index + 1}`;
+    const status = computation.status || computation.state || "Unknown status";
+    button.textContent = `${name} · ${status}`;
+    button.addEventListener("click", () => selectComputation(computation, index));
+    elements.computationList.appendChild(button);
+  });
+}
+
+async function selectComputation(computation, index) {
+  const buttons = elements.computationList.querySelectorAll("button");
+  buttons.forEach((button, idx) => {
+    button.classList.toggle("active", idx === index);
+  });
+  const computationId = computation.id ?? computation.computationId ?? computation.computationID;
+  if (!selectedVoyageId || !computationId) {
+    return;
+  }
+  await loadVoyageRoute(selectedVoyageId, computationId);
+}
+
+async function loadVoyageRoute(voyageId, computationId) {
+  try {
+    const url = buildVoyageRouteUrl(voyageId, computationId);
+    const data = await fetchJson(url, { method: "GET" });
+    renderRoute(data);
+  } catch (error) {
+    console.error(error);
+    alert(`Failed to load route: ${error.message}`);
+  }
+}
+
+function buildVoyageRouteUrl(voyageId, computationId) {
+  const routeTemplate = config.routeEndpoint
+    .replace("voyageID", encodeURIComponent(voyageId))
+    .replace("computationID", encodeURIComponent(computationId));
+  return buildUrl(routeTemplate);
 }
 
 function renderRoute(voyage) {

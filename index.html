@@ -42,6 +42,18 @@
           Voyage endpoint
           <input id="voyageEndpoint" type="text" placeholder="/Voyage" />
         </label>
+        <label>
+          Computations endpoint
+          <input id="computationsEndpoint" type="text" placeholder="/Voyage/{id}/computations" />
+        </label>
+        <label>
+          Route endpoint
+          <input
+            id="routeEndpoint"
+            type="text"
+            placeholder="/VoyageRoute/voyageID?speed=true&direction=true&operational=true&directionUnit=degree&speedUnit=kn&distanceUnit=nm&illustrative=true&computation=computationID"
+          />
+        </label>
       </div>
       <label class="payload">
         Voyage request payload (JSON)
@@ -72,6 +84,8 @@
         <div>
           <h3>Voyages</h3>
           <ul id="voyageList" class="voyage-list"></ul>
+          <h3>Computations</h3>
+          <ul id="computationList" class="voyage-list"></ul>
         </div>
       </div>
     </section>
