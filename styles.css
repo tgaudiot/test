@@ -1,0 +1,269 @@
+:root {
+  color-scheme: light;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --accent: #1f6feb;
+  --accent-soft: #e6f0ff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --success: #16a34a;
+  --warning: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2.5rem 3rem;
+  background: linear-gradient(120deg, #0f172a, #1e293b);
+  color: #f8fafc;
+}
+
+header.app-header p {
+  margin: 0.5rem 0 0;
+  color: #cbd5f5;
+}
+
+.status {
+  padding: 0.35rem 1rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.3);
+  font-weight: 600;
+}
+
+.status.connected {
+  background: rgba(22, 163, 74, 0.25);
+  color: #bbf7d0;
+}
+
+main {
+  display: grid;
+  gap: 1.5rem;
+  padding: 2rem 3rem 3rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem 1.8rem;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+input,
+select,
+button {
+  font-size: 0.95rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+
+button {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  background: #fff;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.helper {
+  color: var(--muted);
+  margin-top: 0.8rem;
+}
+
+.run-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.metrics {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin-top: 1rem;
+}
+
+.metric-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  background: var(--bg);
+}
+
+.metric-card span {
+  display: block;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-top: 0.3rem;
+  color: var(--text);
+}
+
+.map-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+#map {
+  width: 100%;
+  min-height: 420px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.legend {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.best {
+  background: #0ea5e9;
+}
+
+.dot.pareto {
+  background: #f97316;
+}
+
+.pareto-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pareto-content {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr);
+  align-items: start;
+}
+
+.pareto-list {
+  border-left: 1px solid var(--border);
+  padding-left: 1.2rem;
+}
+
+.pareto-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.pareto-list button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+}
+
+.pareto-list button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+footer {
+  text-align: center;
+  padding: 1rem 2rem 2rem;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  header.app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  main {
+    padding: 1.5rem;
+  }
+
+  .pareto-content {
+    grid-template-columns: 1fr;
+  }
+
+  .pareto-list {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+  }
+}
