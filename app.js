@@ -471,9 +471,19 @@ function findIdValue(data, preferredKeys = [], depth = 2) {
   if (!data || typeof data !== "object") {
     return null;
   }
+  const normalizedKeys = preferredKeys.map((key) => key.toLowerCase());
+  const keyMap = Object.keys(data).reduce((acc, key) => {
+    acc[key.toLowerCase()] = data[key];
+    return acc;
+  }, {});
   for (const key of preferredKeys) {
     if (data[key] !== undefined && data[key] !== null) {
       return data[key];
+    }
+  }
+  for (const key of normalizedKeys) {
+    if (keyMap[key] !== undefined && keyMap[key] !== null) {
+      return keyMap[key];
     }
   }
   if (depth <= 0) {
