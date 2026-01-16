@@ -26,6 +26,8 @@ const elements = {
   voyageList: document.getElementById("voyageList"),
   computationList: document.getElementById("computationList"),
   computationDetails: document.getElementById("computationDetails"),
+  selectedVoyageId: document.getElementById("selectedVoyageId"),
+  selectedComputationId: document.getElementById("selectedComputationId"),
   statusPill: document.getElementById("statusPill"),
 };
 
@@ -35,6 +37,7 @@ let routeLayer;
 let voyages = [];
 let computations = [];
 let selectedVoyageId = null;
+let selectedComputationId = null;
 
 init();
 
@@ -179,6 +182,7 @@ async function loadVoyages() {
     updateVoyageList(voyages);
     updateComputationList([]);
     updateComputationDetails(null);
+    updateSelectedIds(null, null);
     updateStatus(!!config.token);
     elements.pageNumber.value = getCurrentPage();
     if (voyages.length > 0) {
@@ -271,8 +275,10 @@ function selectVoyage(voyage, index) {
     button.classList.toggle("active", idx === index);
   });
   selectedVoyageId = voyage.id ?? voyage.voyageId ?? voyage.voyageID;
+  selectedComputationId = null;
   updateComputationList([]);
   updateComputationDetails(null);
+  updateSelectedIds(selectedVoyageId, null);
   renderRoute(voyage);
   if (selectedVoyageId) {
     loadComputations(selectedVoyageId);
@@ -321,11 +327,12 @@ async function selectComputation(computation, index) {
     button.classList.toggle("active", idx === index);
   });
   updateComputationDetails(computation);
-  const computationId = computation.id ?? computation.computationId ?? computation.computationID;
-  if (!selectedVoyageId || !computationId) {
+  selectedComputationId = computation.id ?? computation.computationId ?? computation.computationID;
+  updateSelectedIds(selectedVoyageId, selectedComputationId);
+  if (!selectedVoyageId || !selectedComputationId) {
     return;
   }
-  await loadVoyageRoute(selectedVoyageId, computationId);
+  await loadVoyageRoute(selectedVoyageId, selectedComputationId);
 }
 
 async function loadVoyageRoute(voyageId, computationId) {
@@ -391,6 +398,15 @@ function updateComputationDetails(computation) {
   elements.computationDetails.textContent = computation
     ? JSON.stringify(computation, null, 2)
     : "{}";
+}
+
+function updateSelectedIds(voyageId, computationId) {
+  if (elements.selectedVoyageId) {
+    elements.selectedVoyageId.textContent = `Selected voyage ID: ${voyageId ?? "—"}`;
+  }
+  if (elements.selectedComputationId) {
+    elements.selectedComputationId.textContent = `Selected computation ID: ${computationId ?? "—"}`;
+  }
 }
 
 function extractCoordinates(voyage) {

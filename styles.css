@@ -197,6 +197,16 @@ button:disabled {
   overflow: auto;
 }
 
+.selection-meta {
+  margin: 0.5rem 0 1rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.selection-meta p {
+  margin: 0.2rem 0;
+}
+
 @media (max-width: 900px) {
   header.app-header {
     flex-direction: column;
