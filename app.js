@@ -25,6 +25,7 @@ const elements = {
   pageNumber: document.getElementById("pageNumber"),
   voyageList: document.getElementById("voyageList"),
   computationList: document.getElementById("computationList"),
+  computationDetails: document.getElementById("computationDetails"),
   statusPill: document.getElementById("statusPill"),
 };
 
@@ -177,6 +178,7 @@ async function loadVoyages() {
     voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
     updateVoyageList(voyages);
     updateComputationList([]);
+    updateComputationDetails(null);
     updateStatus(!!config.token);
     elements.pageNumber.value = getCurrentPage();
     if (voyages.length > 0) {
@@ -270,6 +272,7 @@ function selectVoyage(voyage, index) {
   });
   selectedVoyageId = voyage.id ?? voyage.voyageId ?? voyage.voyageID;
   updateComputationList([]);
+  updateComputationDetails(null);
   renderRoute(voyage);
   if (selectedVoyageId) {
     loadComputations(selectedVoyageId);
@@ -298,6 +301,7 @@ function updateComputationList(items) {
     const emptyItem = document.createElement("li");
     emptyItem.textContent = "No computations returned.";
     elements.computationList.appendChild(emptyItem);
+    updateComputationDetails(null);
     return;
   }
   items.forEach((computation, index) => {
@@ -316,6 +320,7 @@ async function selectComputation(computation, index) {
   buttons.forEach((button, idx) => {
     button.classList.toggle("active", idx === index);
   });
+  updateComputationDetails(computation);
   const computationId = computation.id ?? computation.computationId ?? computation.computationID;
   if (!selectedVoyageId || !computationId) {
     return;
@@ -376,6 +381,15 @@ function renderRoute(voyage) {
   }
   const polyline = L.polyline(coordinates, { color: "#1f6feb", weight: 4 }).addTo(routeLayer);
   map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+}
+
+function updateComputationDetails(computation) {
+  if (!elements.computationDetails) {
+    return;
+  }
+  elements.computationDetails.textContent = computation
+    ? JSON.stringify(computation, null, 2)
+    : "{}";
 }
 
 function extractCoordinates(voyage) {
