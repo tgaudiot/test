@@ -254,7 +254,7 @@ function updateVoyageList(items) {
   }
   items.forEach((voyage, index) => {
     const button = document.createElement("button");
-    const voyageId = voyage.id ?? voyage.voyageId ?? voyage.voyageID;
+    const voyageId = findIdValue(voyage, ["id", "voyageId", "voyageID"]);
     const name = voyage.name || voyage.title || voyageId || `Voyage ${index + 1}`;
     const status = voyage.status || voyage.state || "Unknown status";
     const description =
@@ -274,7 +274,7 @@ function selectVoyage(voyage, index) {
   buttons.forEach((button, idx) => {
     button.classList.toggle("active", idx === index);
   });
-  selectedVoyageId = voyage.id ?? voyage.voyageId ?? voyage.voyageID;
+  selectedVoyageId = findIdValue(voyage, ["id", "voyageId", "voyageID"]);
   selectedComputationId = null;
   updateComputationList([]);
   updateComputationDetails(null);
@@ -282,6 +282,8 @@ function selectVoyage(voyage, index) {
   renderRoute(voyage);
   if (selectedVoyageId) {
     loadComputations(selectedVoyageId);
+  } else {
+    console.warn("No voyage ID found for selected voyage.");
   }
 }
 
@@ -312,7 +314,7 @@ function updateComputationList(items) {
   }
   items.forEach((computation, index) => {
     const button = document.createElement("button");
-    const computationId = computation.id ?? computation.computationId ?? computation.computationID;
+    const computationId = findIdValue(computation, ["id", "computationId", "computationID"]);
     const name = computation.name || computation.title || computationId || `Computation ${index + 1}`;
     const status = computation.status || computation.state || "Unknown status";
     button.textContent = `${name} · ${status}`;
@@ -327,9 +329,14 @@ async function selectComputation(computation, index) {
     button.classList.toggle("active", idx === index);
   });
   updateComputationDetails(computation);
-  selectedComputationId = computation.id ?? computation.computationId ?? computation.computationID;
+  selectedComputationId = findIdValue(computation, ["id", "computationId", "computationID"]);
   updateSelectedIds(selectedVoyageId, selectedComputationId);
   if (!selectedVoyageId || !selectedComputationId) {
+    if (!selectedVoyageId) {
+      alert("No voyage ID was found for this selection.");
+    } else {
+      alert("No computation ID was found for this computation.");
+    }
     return;
   }
   await loadVoyageRoute(selectedVoyageId, selectedComputationId);
@@ -458,4 +465,27 @@ function setLoading(button, isLoading) {
   }
   button.disabled = isLoading;
   button.textContent = isLoading ? "Loading..." : button.dataset.label || button.textContent;
+}
+
+function findIdValue(data, preferredKeys = [], depth = 2) {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+  for (const key of preferredKeys) {
+    if (data[key] !== undefined && data[key] !== null) {
+      return data[key];
+    }
+  }
+  if (depth <= 0) {
+    return null;
+  }
+  for (const value of Object.values(data)) {
+    if (typeof value === "object" && value !== null) {
+      const found = findIdValue(value, preferredKeys, depth - 1);
+      if (found !== null && found !== undefined) {
+        return found;
+      }
+    }
+  }
+  return null;
 }
