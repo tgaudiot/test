@@ -332,6 +332,7 @@ async function loadVoyageRoute(voyageId, computationId) {
   try {
     const url = buildVoyageRouteUrl(voyageId, computationId);
     const data = await fetchJson(url, { method: "GET" });
+    updateComputationDetails(data);
     const routeData = resolveRouteData(data);
     renderRoute(routeData);
   } catch (error) {
