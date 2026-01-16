@@ -26,6 +26,7 @@ const elements = {
   voyageList: document.getElementById("voyageList"),
   computationList: document.getElementById("computationList"),
   computationDetails: document.getElementById("computationDetails"),
+  voyageDetails: document.getElementById("voyageDetails"),
   selectedVoyageId: document.getElementById("selectedVoyageId"),
   selectedComputationId: document.getElementById("selectedComputationId"),
   statusPill: document.getElementById("statusPill"),
@@ -182,6 +183,7 @@ async function loadVoyages() {
     updateVoyageList(voyages);
     updateComputationList([]);
     updateComputationDetails(null);
+    updateVoyageDetails(null);
     updateSelectedIds(null, null);
     updateStatus(!!config.token);
     elements.pageNumber.value = getCurrentPage();
@@ -278,6 +280,7 @@ function selectVoyage(voyage, index) {
   selectedComputationId = null;
   updateComputationList([]);
   updateComputationDetails(null);
+  updateVoyageDetails(voyage);
   updateSelectedIds(selectedVoyageId, null);
   renderRoute(voyage);
   if (selectedVoyageId) {
@@ -405,6 +408,13 @@ function updateComputationDetails(computation) {
   elements.computationDetails.textContent = computation
     ? JSON.stringify(computation, null, 2)
     : "{}";
+}
+
+function updateVoyageDetails(voyage) {
+  if (!elements.voyageDetails) {
+    return;
+  }
+  elements.voyageDetails.textContent = voyage ? JSON.stringify(voyage, null, 2) : "{}";
 }
 
 function updateSelectedIds(voyageId, computationId) {
