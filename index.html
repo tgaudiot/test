@@ -16,189 +16,140 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
   <header class="app-header">
     <div>
       <h1>Theyr Voyage Viewer</h1>
-      <p>POST /Voyage with your bearer token and visualize the returned routes.</p>
+      <p>Explore voyages, routes, and analytics in one view.</p>
     </div>
     <div class="status" id="statusPill">Token missing</div>
   </header>
 
-  <main>
-    <section class="panel">
-      <h2>Connection</h2>
-      <div class="grid">
-        <label>
-          Base URL
-          <input id="baseUrl" type="url" placeholder="https://api.t-vos.com/v1.23" />
-        </label>
-        <label>
-          Bearer token
-          <input id="token" type="text" placeholder="Paste your token" />
-        </label>
-        <label>
-          Voyage endpoint
-          <input id="voyageEndpoint" type="text" placeholder="/Voyage" />
-        </label>
-        <label>
-          Computations endpoint
-          <input id="computationsEndpoint" type="text" placeholder="/Voyage/{id}/computations" />
-        </label>
-        <label>
-          Computations query params (JSON)
-          <input id="computationsQuery" type="text" placeholder='{"metadata":true}' />
-        </label>
-        <label>
-          Route endpoint
-          <input
-            id="routeEndpoint"
-            type="text"
-            placeholder="/VoyageRoute/{voyageId}"
-          />
-        </label>
-        <label>
-          Pareto endpoint
-          <input
-            id="paretoEndpoint"
-            type="text"
-            placeholder="/VoyageRoute/{voyageId}/solution"
-          />
-        </label>
-        <label>
-          Pareto distance unit
-          <input
-            id="paretoDistanceUnit"
-            type="text"
-            placeholder="nm"
-          />
-        </label>
-        <label>
-          Weather base URL
-          <input
-            id="weatherBaseUrl"
-            type="text"
-            placeholder="https://rdas.theyr.com/v2.3"
-          />
-        </label>
-        <label>
-          Weather endpoint
-          <input
-            id="weatherEndpoint"
-            type="text"
-            placeholder="/RouteData"
-          />
-        </label>
-        <label>
-          Weather token (optional)
-          <input
-            id="weatherToken"
-            type="text"
-            placeholder="Bearer token or leave empty"
-          />
-        </label>
-        <label>
-          Weather units (JSON)
-          <input
-            id="weatherUnits"
-            type="text"
-            placeholder='{"direction":"degree","height":"meter","speed":"mps"}'
-          />
-        </label>
-        <label>
-          Weather filters (JSON)
-          <input
-            id="weatherFilters"
-            type="text"
-            placeholder='["tide","airTemperature","seaFloorDepth","sst","sss","iceFraction","stdmet"]'
-          />
-        </label>
-        <label>
-          Weather data feed ID
-          <input
-            id="weatherDataFeedId"
-            type="text"
-            placeholder="8d7c5712-bea2-4148-93eb-b00000"
-          />
-        </label>
-        <label class="checkbox">
-          <span>Include weather options</span>
-          <input id="weatherIncludeOptions" type="checkbox" />
-        </label>
-        <label>
-          Route query params (JSON)
-          <input
-            id="routeQueryParams"
-            type="text"
-            placeholder='{"speed":true,"direction":true,"operational":true,"directionUnit":"degree","speedUnit":"kn","distanceUnit":"nm","illustrative":true}'
-          />
-        </label>
-      </div>
-      <label class="payload">
-        Voyage request payload (JSON)
-        <textarea id="voyagePayload" rows="4" placeholder='{"split":10,"page":1}'></textarea>
-      </label>
-      <div class="pagination">
-        <button id="prevPage">Previous page</button>
-        <div class="page-info">
-          <label>
-            Page
+  <div class="page-tabs">
+    <button class="page-tab active" data-page="selection" type="button">Route selection</button>
+    <button class="page-tab" data-page="results" type="button">Results</button>
+  </div>
+
+  <main class="app-shell">
+    <section class="page-section active" data-page="selection">
+      <div class="selection-layout">
+        <aside class="sidebar">
+          <section class="card">
+            <div class="section-header">
+              <h2>Connection</h2>
+            </div>
+            <details class="collapsible" open>
+              <summary>Bearer token</summary>
+              <label>
+                Token
+                <input id="token" type="text" placeholder="Paste your token" />
+              </label>
+            </details>
+            <div class="actions">
+              <label class="inline">
+                Voyage description
+                <input id="descriptionSearch" type="text" placeholder="Search voyages..." />
+              </label>
+              <button id="searchVoyages" class="primary">Find voyages</button>
+<p id="searchStatus" class="pareto-status"></p>
+            </div>
+          </section>
+
+          <section class="card full-width" id="voyageListCard">
+  <div class="section-header">
+    <h2>Voyages</h2>
+  </div>
+  <ul id="voyageList" class="voyage-list full"></ul>
+</section>
+
+          <section class="card full-width">
+  <div class="section-header">
+    <h2>Computations</h2>
+  </div>
+  <ul id="computationList" class="voyage-list full"></ul>
+</section>
+
+          <section class="card">
+            <div class="section-header">
+              <h3>Selection</h3>
+            </div>
+            <div class="selection-meta">
+              <p id="selectedVoyageId">Selected voyage ID: --</p>
+              <p id="selectedComputationId">Selected computation ID: --</p>
+            </div>
+          </section>
+
+          <div class="hidden">
+            <input id="baseUrl" type="hidden" />
+            <input id="voyageEndpoint" type="hidden" />
+            <input id="computationsEndpoint" type="hidden" />
+            <input id="computationsQuery" type="hidden" />
+            <input id="routeEndpoint" type="hidden" />
+            <input id="paretoEndpoint" type="hidden" />
+            <input id="paretoDistanceUnit" type="hidden" />
+            <input id="weatherBaseUrl" type="hidden" />
+            <input id="weatherEndpoint" type="hidden" />
+            <input id="weatherToken" type="hidden" />
+            <input id="weatherUnits" type="hidden" />
+            <input id="weatherFilters" type="hidden" />
+            <input id="weatherDataFeedId" type="hidden" />
+            <input id="routeQueryParams" type="hidden" />
+            <input id="weatherIncludeOptions" type="checkbox" />
+            <textarea id="voyagePayload"></textarea>
+            <button id="saveConfig">Save config</button>
+            <button id="loadVoyages">Load voyages</button>
+            <button id="prevPage">Previous page</button>
+            <button id="nextPage">Next page</button>
             <input id="pageNumber" type="number" min="1" value="1" />
-          </label>
-        </div>
-        <button id="nextPage">Next page</button>
-      </div>
-      <div class="actions">
-        <button id="saveConfig">Save config</button>
-        <button id="loadVoyages" class="primary">Load voyages</button>
+          </div>
+        </aside>
+
+        
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Voyage Results</h2>
-      <div class="layout">
-        <div>
-          <div id="map"></div>
-          <div class="timeseries-panel">
-            <h3>Route timeseries</h3>
-            <div id="timeseriesContainer" class="timeseries-container">
-              <p>No timeseries data available.</p>
-            </div>
-          </div>
-          <div class="timeseries-panel">
-            <h3>Weather timeseries</h3>
-            <div id="weatherTimeseriesContainer" class="timeseries-container">
-              <p>No weather timeseries available.</p>
-            </div>
-          </div>
-          <div class="timeseries-panel">
-            <h3>Pareto front</h3>
-            <div id="paretoContainer" class="timeseries-container">
-              <p>No pareto data available.</p>
-            </div>
-            <p id="paretoStatus" class="pareto-status"></p>
-            <p id="weatherStatus" class="pareto-status"></p>
-            <div class="weather-progress">
-              <div id="weatherProgressBar" class="weather-progress-bar"></div>
-            </div>
+    <section class="page-section" data-page="results">
+      <section class="card map-card">
+        <div class="section-header">
+          <h2>Map</h2>
+        </div>
+        <div id="map"></div>
+      </section>
+
+      <section class="card charts-card">
+        <div class="section-header">
+          <h2>Charts</h2>
+          <div class="tabs" role="tablist">
+            <button class="tab-button active" data-tab="performance" type="button">Performance</button>
+            <button class="tab-button" data-tab="engine" type="button">Engine</button>
+            <button class="tab-button" data-tab="fuel" type="button">Fuel</button>
+            <button class="tab-button" data-tab="weather" type="button">Weather</button>
           </div>
         </div>
-        <div>
-          <h3>Voyages</h3>
-          <ul id="voyageList" class="voyage-list"></ul>
-          <h3>Computations</h3>
-          <ul id="computationList" class="voyage-list"></ul>
-          <div class="selection-meta">
-            <p id="selectedVoyageId">Selected voyage ID: —</p>
-            <p id="selectedComputationId">Selected computation ID: —</p>
+        <div class="charts-body">
+          <div id="timeseriesContainer" class="timeseries-container"></div>
+          <div id="weatherTimeseriesContainer" class="timeseries-container hidden"></div>
+          <div class="weather-actions hidden" id="weatherActions">
+            <button id="weatherFetch">Fetch weather</button>
           </div>
-          <h3>Voyage response</h3>
-          <pre id="voyageDetails" class="json-output">{}</pre>
-          <h3>Computation response</h3>
-          <pre id="computationDetails" class="json-output">{}</pre>
+          <p id="weatherStatus" class="pareto-status"></p>
+          <div class="weather-progress">
+            <div id="weatherProgressBar" class="weather-progress-bar"></div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="card pareto-card">
+        <div class="section-header">
+          <h2>Pareto front</h2>
+        </div>
+        <div id="paretoContainer" class="timeseries-container">
+          <p>No pareto data available.</p>
+        </div>
+        <p id="paretoStatus" class="pareto-status"></p>
+      </section>
     </section>
   </main>
 

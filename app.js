@@ -36,6 +36,7 @@ const elements = {
   routeQueryParams: document.getElementById("routeQueryParams"),
   descriptionSearch: document.getElementById("descriptionSearch"),
   searchVoyages: document.getElementById("searchVoyages"),
+  searchStatus: document.getElementById("searchStatus"),
   weatherBaseUrl: document.getElementById("weatherBaseUrl"),
   weatherEndpoint: document.getElementById("weatherEndpoint"),
   weatherToken: document.getElementById("weatherToken"),
@@ -101,6 +102,8 @@ function init() {
   bindEvents();
   updateStatus(!!config.token);
   bindParetoEvents();
+  bindChartTabs();
+  bindPageTabs();
 }
 
 function bindEvents() {
@@ -136,7 +139,9 @@ function bindEvents() {
 }
 
 function initMap() {
-  map = L.map("map").setView([20, 0], 2);
+  map = L.map("map", {
+    worldCopyJump: true,
+  }).setView([20, 0], 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     attribution: "&copy; OpenStreetMap contributors",
@@ -274,7 +279,6 @@ async function loadVoyages() {
     });
     voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
     voyages = voyages.filter(isProductionVoyage);
-    voyages = voyages.filter(isProductionVoyage);
     updateVoyageList(voyages);
     updateComputationList([]);
     updateComputationDetails(null);
@@ -396,10 +400,11 @@ function normalizeArray(data, keys) {
 function isProductionVoyage(voyage) {
   const description = voyage?.description || voyage?.summary || "";
   const tokens = extractBracketTokens(description);
-  if (tokens.length < 2) {
-    return false;
-  }
-  return tokens[0].toLowerCase() === "server" && tokens[1].toLowerCase() === "production";
+  const isProd = tokens.length >= 2 &&
+    tokens[0].toLowerCase() === "server" &&
+    tokens[1].toLowerCase() === "production";
+  const hasCompleted = description.toLowerCase().includes("state.task.completed");
+  return isProd && hasCompleted;
 }
 
 function getVoyageLabel(voyage) {
@@ -409,6 +414,17 @@ function getVoyageLabel(voyage) {
     return tokens[2];
   }
   return voyage.name || voyage.title || findIdValue(voyage, ["id", "voyageId", "voyageID"]) || "Voyage";
+}
+
+function matchesDescription(voyage, query) {
+  if (!query) {
+    return true;
+  }
+  const description = voyage?.description || voyage?.summary || "";
+  return description.toLowerCase().includes(query.toLowerCase());
+}
+function isCompletedVoyage(voyage) {
+  return String(voyage?.status || "") === "state.task.completed";
 }
 
 function extractBracketTokens(text) {
@@ -535,11 +551,17 @@ function selectSingleVoyage(voyage) {
   renderBaseRoute(voyage);
   renderSolutionRoute(null);
   renderTimeseries(null);
-  updateRouteFilters(baseRouteData);
   renderWeatherTimeseries(null);
   renderPareto(null);
   if (selectedVoyageId) {
-    loadComputations(selectedVoyageId);
+    loadComputations(selectedVoyageId).then(() => {
+      if (Array.isArray(computations) && computations.length) {
+        const latest = pickLatestComputation(computations);
+        if (latest) {
+          selectComputation(latest, 0);
+        }
+      }
+    });
   } else {
     console.warn("No voyage ID found for selected voyage.");
   }
@@ -712,16 +734,29 @@ function renderRouteToLayer(layer, voyage) {
     return null;
   }
   const bounds = L.latLngBounds([]);
+  const wrapShifts = [0, -360, 360];
   segments.forEach((segment) => {
     if (!isRouteTagVisible(segment.tag)) {
       return;
     }
-    const polyline = L.polyline(segment.coordinates, {
-      color: segment.color,
-      weight: 4,
-    }).addTo(layer);
-    bounds.extend(polyline.getBounds());
-    addRoutePointMarkers(layer, segment);
+    wrapShifts.forEach((shift) => {
+      const coordinates =
+        shift === 0 ? segment.coordinates : shiftCoordinates(segment.coordinates, shift);
+      if (!coordinates.length) {
+        return;
+      }
+      const polyline = L.polyline(coordinates, {
+        color: segment.color,
+        weight: 4,
+        interactive: shift === 0,
+      }).addTo(layer);
+      if (shift === 0) {
+        bounds.extend(polyline.getBounds());
+      }
+    });
+    if (segment.includeMarkers !== false) {
+      addRoutePointMarkers(layer, segment, wrapShifts);
+    }
   });
   return bounds.isValid() ? bounds : null;
 }
@@ -756,10 +791,12 @@ async function searchVoyagesByDescription() {
     config = readConfigFromInputs();
     saveConfig(config);
     const url = buildUrlWithQuery("/Voyage/description", { description: query });
+    if (elements.searchStatus) {
+      elements.searchStatus.textContent = `GET ${url}`;
+    }
     const data = await fetchJson(url, { method: "GET" });
     voyages = normalizeArray(data, ["voyages", "items", "data", "results"]) || [];
-    voyages = voyages.filter(isProductionVoyage);
-    voyages = voyages.filter(isProductionVoyage);
+    voyages = voyages.filter(isCompletedVoyage);
     updateVoyageList(voyages);
     updateComputationList([]);
     updateComputationDetails(null);
@@ -925,15 +962,15 @@ function extractRouteSegments(voyage) {
     if (isRouteExcluded(tag)) {
       return [];
     }
-    return [
-      {
-        coordinates,
-        color: colorFromTag(String(tag)),
-        tag: String(tag),
-        points: voyage.data,
-        weatherLookup: buildWeatherLookup(voyage),
-      },
-    ];
+    const splitCoords = splitAntimeridianCoordinates(coordinates);
+    return splitCoords.map((segmentCoords, index) => ({
+      coordinates: segmentCoords,
+      color: colorFromTag(String(tag)),
+      tag: String(tag),
+      points: voyage.data,
+      weatherLookup: buildWeatherLookup(voyage),
+      includeMarkers: index === 0,
+    }));
   }
   const routes =
     voyage.routes ||
@@ -950,30 +987,33 @@ function extractRouteSegments(voyage) {
         if (isRouteExcluded(tag)) {
           return null;
         }
-        return {
-          coordinates,
+        const splitCoords = splitAntimeridianCoordinates(coordinates);
+        return splitCoords.map((segmentCoords, segmentIndex) => ({
+          coordinates: segmentCoords,
           color: colorFromTag(String(tag)),
           tag: String(tag),
           points,
           weatherLookup: buildWeatherLookup(route),
-        };
+          includeMarkers: segmentIndex === 0,
+        }));
       })
       .filter(Boolean)
+      .flat()
       .filter((segment) => segment.coordinates.length);
   }
   const coordinates = extractCoordinates(voyage);
   if (!coordinates.length) {
     return [];
   }
-  return [
-    {
-      coordinates,
-      color: "#1f6feb",
-      tag: "route",
-      points: [],
-      weatherLookup: null,
-    },
-  ];
+  const splitCoords = splitAntimeridianCoordinates(coordinates);
+  return splitCoords.map((segmentCoords, index) => ({
+    coordinates: segmentCoords,
+    color: "#1f6feb",
+    tag: "route",
+    points: [],
+    weatherLookup: null,
+    includeMarkers: index === 0,
+  }));
 }
 
 function normalizePoint(point) {
@@ -993,6 +1033,87 @@ function normalizePoint(point) {
     }
   }
   return null;
+}
+
+function normalizeLng(lng) {
+  if (!Number.isFinite(lng)) {
+    return lng;
+  }
+  let normalized = lng;
+  while (normalized > 180) {
+    normalized -= 360;
+  }
+  while (normalized < -180) {
+    normalized += 360;
+  }
+  return normalized;
+}
+
+function splitAntimeridianCoordinates(coordinates) {
+  if (!Array.isArray(coordinates) || coordinates.length <= 1) {
+    return coordinates.length ? [coordinates] : [];
+  }
+  const normalized = coordinates.map(([lat, lng]) => [lat, normalizeLng(lng)]);
+  const segments = [];
+  let current = [normalized[0]];
+  for (let i = 1; i < normalized.length; i += 1) {
+    const prev = normalized[i - 1];
+    const curr = normalized[i];
+    let prevLng = prev[1];
+    const currLng = curr[1];
+    let adjustedLng = currLng;
+    if (Math.abs(currLng - prevLng) > 180) {
+      if (prevLng > 0 && currLng < 0) {
+        adjustedLng = currLng + 360;
+      } else if (prevLng < 0 && currLng > 0) {
+        adjustedLng = currLng - 360;
+      }
+      const delta = adjustedLng - prevLng;
+      const boundaryLng = prevLng > 0 ? 180 : -180;
+      const ratio = delta === 0 ? 0 : (boundaryLng - prevLng) / delta;
+      const latAtBoundary = prev[0] + (curr[0] - prev[0]) * ratio;
+      current.push([latAtBoundary, boundaryLng]);
+      segments.push(current);
+      const wrapLng = boundaryLng === 180 ? -180 : 180;
+      current = [[latAtBoundary, wrapLng], [curr[0], currLng]];
+    } else {
+      current.push(curr);
+    }
+  }
+  if (current.length) {
+    segments.push(current);
+  }
+  return segments;
+}
+
+function wrapCoordinatesForWorld(coordinates) {
+  if (!Array.isArray(coordinates) || coordinates.length === 0) {
+    return [];
+  }
+  const normalized = coordinates.map(([lat, lng]) => [lat, normalizeLng(lng)]);
+  const wrapped = [normalized[0]];
+  let offset = 0;
+  let prevLng = normalized[0][1];
+  for (let i = 1; i < normalized.length; i += 1) {
+    const [lat, lng] = normalized[i];
+    const delta = lng - prevLng;
+    if (delta > 180) {
+      offset -= 360;
+    } else if (delta < -180) {
+      offset += 360;
+    }
+    const adjustedLng = lng + offset;
+    wrapped.push([lat, adjustedLng]);
+    prevLng = adjustedLng;
+  }
+  return wrapped;
+}
+
+function shiftCoordinates(coordinates, shift) {
+  if (!Array.isArray(coordinates) || !coordinates.length) {
+    return [];
+  }
+  return coordinates.map(([lat, lng]) => [lat, lng + shift]);
 }
 
 function colorFromTag(tag) {
@@ -1397,8 +1518,7 @@ function renderTimeseries(voyage) {
     return;
   }
   const routes = extractRouteSeries(voyage);
-  const visibleRoutes = routes.filter((route) => isRouteTagVisible(route.tag));
-  if (!visibleRoutes.length) {
+  if (!routes.length) {
     elements.timeseriesContainer.innerHTML = "<p>No timeseries data available.</p>";
     destroyChartsIn(elements.timeseriesContainer);
     return;
@@ -1411,7 +1531,7 @@ function renderTimeseries(voyage) {
   ];
   const cards = metrics
     .map((metric) => {
-      const seriesByTag = visibleRoutes
+      const seriesByTag = routes
         .map((route) => {
           const series = route.points
             .map((point) => ({ t: point.t, value: point[metric.key] }))
@@ -1427,7 +1547,7 @@ function renderTimeseries(voyage) {
       const flatValues = seriesByTag.flatMap((route) => route.series.map((point) => point.value));
       const range = flatValues.length ? summarizeRange(flatValues) : null;
       return `
-        <div class="series-card">
+        <div class="series-card" data-metric="${metric.key}">
           <div class="series-header">
             <span class="series-title">${metric.label}</span>
             <span class="series-meta">${range ?? "No data"}</span>
@@ -1447,8 +1567,7 @@ function renderWeatherTimeseries(voyage) {
     return;
   }
   const routes = extractWeatherSeries(voyage);
-  const visibleRoutes = routes.filter((route) => isRouteTagVisible(route.tag));
-  if (!visibleRoutes.length) {
+  if (!routes.length) {
     elements.weatherTimeseriesContainer.innerHTML = "<p>No weather timeseries available.</p>";
     destroyChartsIn(elements.weatherTimeseriesContainer);
     return;
@@ -1463,7 +1582,7 @@ function renderWeatherTimeseries(voyage) {
   ];
   const cards = metrics
     .map((metric) => {
-      const seriesByTag = visibleRoutes
+      const seriesByTag = routes
         .map((route) => {
           const series = route.points
             .map((point) => ({ t: point.t, value: point[metric.key] }))
@@ -1482,7 +1601,7 @@ function renderWeatherTimeseries(voyage) {
       const flatValues = seriesByTag.flatMap((route) => route.series.map((point) => point.value));
       const range = flatValues.length ? summarizeRange(flatValues) : null;
       return `
-        <div class="series-card">
+        <div class="series-card" data-metric="${metric.key}">
           <div class="series-header">
             <span class="series-title">${metric.label}</span>
             <span class="series-meta">${range ?? "No data"}</span>
@@ -1739,7 +1858,7 @@ async function loadLatestComputationsForVoyages(selectedVoyages) {
       const latestId = latest
         ? findIdValue(latest, ["id", "computationId", "computationID", "computation"])
         : null;
-      const label = getVoyageLabel(voyage);
+      const label = voyage.name || voyage.title || voyageId;
       autoItems.push({ label, computationId: latestId, voyageId });
       if (!latestId) {
         continue;
@@ -1753,7 +1872,7 @@ async function loadLatestComputationsForVoyages(selectedVoyages) {
       const routeArray = getRoutesArray(resolved);
       routeArray.forEach((route, index) => {
         const tag = route.tag || `route-${index + 1}`;
-        const nextRoute = { ...route, tag: `${label} · ${tag}` };
+        const nextRoute = { ...route, tag: `${label} ï¿½ ${tag}` };
         mergedRoutes.push(nextRoute);
       });
     } catch (error) {
@@ -1813,7 +1932,7 @@ async function loadParetoFrontForVoyages(items) {
       const url = buildParetoUrl(item.voyageId, item.computationId);
       const data = await fetchJson(url, { method: "GET" });
       const points = extractParetoPoints(data).map((point) => ({
-        name: `${item.label} · ${point.label}`,
+        name: `${item.label} ï¿½ ${point.label}`,
         value: [point.fuel, point.duration],
         solutionId: point.id ?? null,
         computationId: item.computationId,
@@ -1855,6 +1974,74 @@ function buildMultiParetoPayload(series, highlightPoints) {
   };
 }
 
+function bindPageTabs() {
+  const tabs = document.querySelectorAll(".page-tab");
+  const sections = document.querySelectorAll(".page-section");
+  if (!tabs.length || !sections.length) {
+    return;
+  }
+  const setActive = (tab) => {
+    const target = tab.dataset.page;
+    tabs.forEach((btn) => btn.classList.toggle("active", btn === tab));
+    sections.forEach((section) => {
+      section.classList.toggle("active", section.dataset.page === target);
+    });
+    if (target === "results" && map) {
+      setTimeout(() => {
+        map.invalidateSize();
+        chartInstances.forEach((chart) => chart.resize());
+        if (paretoChartInstance) {
+          paretoChartInstance.resize();
+        }
+      }, 50);
+    }
+  };
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => setActive(tab));
+  });
+  setActive(tabs[0]);
+}
+function bindChartTabs() {
+  const tabs = document.querySelectorAll(".tab-button");
+  const weatherContainer = document.getElementById("weatherTimeseriesContainer");
+  const weatherActions = document.getElementById("weatherActions");
+  if (!tabs.length) {
+    return;
+  }
+  const setActive = (tab) => {
+    tabs.forEach((btn) => btn.classList.toggle("active", btn === tab));
+    const key = tab.dataset.tab;
+    applyChartTabFilter(key, weatherContainer, weatherActions);
+  };
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => setActive(tab));
+  });
+  setActive(tabs[0]);
+}
+
+function applyChartTabFilter(tabKey, weatherContainer, weatherActions) {
+  const cards = document.querySelectorAll(".series-card");
+  cards.forEach((card) => {
+    const metric = card.dataset.metric;
+    let visible = true;
+    if (tabKey === "performance") {
+      visible = metric === "speed";
+    } else if (tabKey === "engine") {
+      visible = metric === "rpm" || metric === "power";
+    } else if (tabKey === "fuel") {
+      visible = metric === "fuel";
+    } else if (tabKey === "weather") {
+      visible = false;
+    }
+    card.classList.toggle("hidden", !visible);
+  });
+  if (weatherContainer) {
+    weatherContainer.classList.toggle("hidden", tabKey !== "weather");
+  }
+  if (weatherActions) {
+    weatherActions.classList.toggle("hidden", tabKey !== "weather");
+  }
+}
 function buildEchartOption(payload) {
   const series = payload.series || [];
   const colors = series.map((item) => item.color);
@@ -2089,7 +2276,7 @@ function isRouteExcluded(tag) {
   return EXCLUDED_ROUTE_TAGS.has(normalized);
 }
 
-function addRoutePointMarkers(layer, segment) {
+function addRoutePointMarkers(layer, segment, shifts = [0]) {
   if (!segment.points || !segment.points.length) {
     return;
   }
@@ -2100,16 +2287,20 @@ function addRoutePointMarkers(layer, segment) {
       return;
     }
     const tooltip = buildRouteTooltip(point, segment.tag, weatherLookup);
-    const marker = L.circleMarker(coord, {
-      radius: 3,
-      color: segment.color,
-      weight: 1,
-      fillColor: segment.color,
-      fillOpacity: 0.6,
-    }).addTo(layer);
-    if (tooltip) {
-      marker.bindTooltip(tooltip, { sticky: true, direction: "top" });
-    }
+    shifts.forEach((shift) => {
+      const shifted = shift === 0 ? coord : [coord[0], coord[1] + shift];
+      const marker = L.circleMarker(shifted, {
+        radius: 3,
+        color: segment.color,
+        weight: 1,
+        fillColor: segment.color,
+        fillOpacity: 0.6,
+        interactive: shift === 0,
+      }).addTo(layer);
+      if (tooltip && shift === 0) {
+        marker.bindTooltip(tooltip, { sticky: true, direction: "top" });
+      }
+    });
   });
 }
 
