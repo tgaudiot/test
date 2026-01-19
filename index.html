@@ -55,7 +55,83 @@
           <input
             id="routeEndpoint"
             type="text"
-            placeholder="/VoyageRoute/voyageID?speed=true&direction=true&operational=true&directionUnit=degree&speedUnit=kn&distanceUnit=nm&illustrative=true&computation=computationID"
+            placeholder="/VoyageRoute/{voyageId}"
+          />
+        </label>
+        <label>
+          Pareto endpoint
+          <input
+            id="paretoEndpoint"
+            type="text"
+            placeholder="/VoyageRoute/{voyageId}/solution"
+          />
+        </label>
+        <label>
+          Pareto distance unit
+          <input
+            id="paretoDistanceUnit"
+            type="text"
+            placeholder="nm"
+          />
+        </label>
+        <label>
+          Weather base URL
+          <input
+            id="weatherBaseUrl"
+            type="text"
+            placeholder="https://rdas.theyr.com/v2.3"
+          />
+        </label>
+        <label>
+          Weather endpoint
+          <input
+            id="weatherEndpoint"
+            type="text"
+            placeholder="/RouteData"
+          />
+        </label>
+        <label>
+          Weather token (optional)
+          <input
+            id="weatherToken"
+            type="text"
+            placeholder="Bearer token or leave empty"
+          />
+        </label>
+        <label>
+          Weather units (JSON)
+          <input
+            id="weatherUnits"
+            type="text"
+            placeholder='{"direction":"degree","height":"meter","speed":"mps"}'
+          />
+        </label>
+        <label>
+          Weather filters (JSON)
+          <input
+            id="weatherFilters"
+            type="text"
+            placeholder='["tide","airTemperature","seaFloorDepth","sst","sss","iceFraction","stdmet"]'
+          />
+        </label>
+        <label>
+          Weather data feed ID
+          <input
+            id="weatherDataFeedId"
+            type="text"
+            placeholder="8d7c5712-bea2-4148-93eb-b00000"
+          />
+        </label>
+        <label class="checkbox">
+          <span>Include weather options</span>
+          <input id="weatherIncludeOptions" type="checkbox" />
+        </label>
+        <label>
+          Route query params (JSON)
+          <input
+            id="routeQueryParams"
+            type="text"
+            placeholder='{"speed":true,"direction":true,"operational":true,"directionUnit":"degree","speedUnit":"kn","distanceUnit":"nm","illustrative":true}'
           />
         </label>
       </div>
@@ -84,6 +160,29 @@
       <div class="layout">
         <div>
           <div id="map"></div>
+          <div class="timeseries-panel">
+            <h3>Route timeseries</h3>
+            <div id="timeseriesContainer" class="timeseries-container">
+              <p>No timeseries data available.</p>
+            </div>
+          </div>
+          <div class="timeseries-panel">
+            <h3>Weather timeseries</h3>
+            <div id="weatherTimeseriesContainer" class="timeseries-container">
+              <p>No weather timeseries available.</p>
+            </div>
+          </div>
+          <div class="timeseries-panel">
+            <h3>Pareto front</h3>
+            <div id="paretoContainer" class="timeseries-container">
+              <p>No pareto data available.</p>
+            </div>
+            <p id="paretoStatus" class="pareto-status"></p>
+            <p id="weatherStatus" class="pareto-status"></p>
+            <div class="weather-progress">
+              <div id="weatherProgressBar" class="weather-progress-bar"></div>
+            </div>
+          </div>
         </div>
         <div>
           <h3>Voyages</h3>

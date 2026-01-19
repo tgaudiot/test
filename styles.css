@@ -79,6 +79,13 @@ label {
   font-size: 0.9rem;
 }
 
+label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 input,
 textarea,
 button {
@@ -147,6 +154,148 @@ button:disabled {
   min-height: 420px;
   border-radius: 14px;
   border: 1px solid var(--border);
+}
+
+.timeseries-panel {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #fbfbff;
+}
+
+.timeseries-panel h3 {
+  margin: 0 0 0.75rem;
+}
+
+.timeseries-container {
+  color: var(--muted);
+}
+
+.timeseries-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.9rem;
+}
+
+.series-card {
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.series-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.series-title {
+  font-size: 0.9rem;
+}
+
+.series-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.series-chart {
+  width: 100%;
+  height: 180px;
+  display: block;
+}
+
+.series-chart-wrap {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.series-axis {
+  stroke: #cbd5f5;
+  stroke-width: 1;
+}
+
+.series-axis-label {
+  fill: #64748b;
+  font-size: 10px;
+}
+
+.series-axis-title {
+  fill: #0f172a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.series-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.series-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.pareto-chart-wrap {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pareto-chart {
+  width: 100%;
+  height: 220px;
+  display: block;
+}
+
+.pareto-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.weather-progress {
+  margin-top: 0.35rem;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.weather-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38bdf8, #2563eb);
+  transition: width 0.2s ease;
+}
+
+.pareto-point {
+  cursor: pointer;
+}
+
+.pareto-point:hover {
+  opacity: 0.85;
+}
+
+.series-empty {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0.5rem 0;
 }
 
 .layout {
