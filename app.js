@@ -21,6 +21,7 @@ const DEFAULT_CONFIG = {
 };
 
 const WEATHER_CHUNK_SIZE = 100;
+const MIN_MAP_ZOOM = 2;
 
 const STORAGE_KEY = "theyr-voyage-config";
 
@@ -141,9 +142,14 @@ function bindEvents() {
 function initMap() {
   map = L.map("map", {
     worldCopyJump: true,
+    minZoom: MIN_MAP_ZOOM,
+    maxBoundsViscosity: 1.0,
   }).setView([20, 0], 2);
+  const worldBounds = L.latLngBounds([-85, -180], [85, 180]);
+  map.setMaxBounds(worldBounds);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
+    minZoom: MIN_MAP_ZOOM,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
   routeLayer = L.layerGroup().addTo(map);
@@ -774,6 +780,7 @@ function fitMapToRoutes() {
   }
   if (bounds.isValid()) {
     map.fitBounds(bounds, { padding: [30, 30] });
+    map.setView(bounds.getCenter(), map.getMinZoom());
   }
 }
 
