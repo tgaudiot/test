@@ -28,15 +28,15 @@
   </header>
 
   <div class="page-tabs">
-    <button class="page-tab active" data-page="selection" type="button">Route selection</button>
+    <button class="page-tab active" data-page="selection" type="button">Selection</button>
     <button class="page-tab" data-page="results" type="button">Results</button>
   </div>
 
   <main class="app-shell">
     <section class="page-section active" data-page="selection">
       <div class="selection-layout">
-        <aside class="sidebar">
-          <section class="card">
+        <section class="selection-main">
+          <section class="card connection-card">
             <div class="section-header">
               <h2>Connection</h2>
             </div>
@@ -47,39 +47,52 @@
                 <input id="token" type="text" placeholder="Paste your token" />
               </label>
             </details>
-            <div class="actions">
-              <label class="inline">
-                Voyage description
-                <input id="descriptionSearch" type="text" placeholder="Search voyages..." />
-              </label>
-              <button id="searchVoyages" class="primary">Find voyages</button>
-<p id="searchStatus" class="pareto-status"></p>
-            </div>
           </section>
 
-          <section class="card full-width" id="voyageListCard">
-  <div class="section-header">
-    <h2>Voyages</h2>
-  </div>
-  <ul id="voyageList" class="voyage-list full"></ul>
-</section>
+          <div class="selection-grid single">
+            <section class="card scenario-card">
+              <div class="section-header">
+                <h2>Scenario runs</h2>
+              </div>
+              <div class="scenario-toolbar">
+                <label class="inline">
+                  Search ID or description
+                  <input id="descriptionSearch" type="text" placeholder="Search voyages..." />
+                </label>
+                <button id="searchVoyages" class="primary">Find voyages</button>
+                <p id="searchStatus" class="pareto-status"></p>
+              </div>
+              <div class="scenario-table">
+                <div class="scenario-row scenario-header">
+                  <span>Description</span>
+                  <span>Status</span>
+                  <span>Start time</span>
+                  <span>Vessel</span>
+                  <span class="optional">Max wave cruise height</span>
+                  <span class="optional">Last used</span>
+                </div>
+                <div id="voyageList" class="scenario-body"></div>
+              </div>
+            </section>
 
-          <section class="card full-width">
-  <div class="section-header">
-    <h2>Computations</h2>
-  </div>
-  <ul id="computationList" class="voyage-list full"></ul>
-</section>
-
-          <section class="card">
-            <div class="section-header">
-              <h3>Selection</h3>
-            </div>
-            <div class="selection-meta">
-              <p id="selectedVoyageId">Selected voyage ID: --</p>
-              <p id="selectedComputationId">Selected computation ID: --</p>
-            </div>
-          </section>
+            <section class="card detail-card hidden">
+              <div class="section-header">
+                <h2>Selection</h2>
+              </div>
+              <div class="selection-meta">
+                <p id="selectedVoyageId">Selected voyage ID: --</p>
+                <p id="selectedComputationId">Selected computation ID: --</p>
+              </div>
+              <div class="detail-section">
+                <h3>Computations</h3>
+                <div id="computationList" class="computation-list"></div>
+              </div>
+              <div class="detail-section">
+                <h3>Routes</h3>
+                <div id="routeFilters" class="route-table"></div>
+              </div>
+            </section>
+          </div>
 
           <div class="hidden">
             <input id="baseUrl" type="hidden" />
@@ -104,9 +117,7 @@
             <button id="nextPage">Next page</button>
             <input id="pageNumber" type="number" min="1" value="1" />
           </div>
-        </aside>
-
-        
+        </section>
       </div>
     </section>
 
@@ -119,13 +130,14 @@
       </section>
 
       <section class="card charts-card">
-        <div class="section-header">
+          <div class="section-header">
           <h2>Charts</h2>
           <div class="tabs" role="tablist">
             <button class="tab-button active" data-tab="performance" type="button">Performance</button>
             <button class="tab-button" data-tab="engine" type="button">Engine</button>
             <button class="tab-button" data-tab="fuel" type="button">Fuel</button>
             <button class="tab-button" data-tab="weather" type="button">Weather</button>
+            <button class="tab-button" data-tab="pareto" type="button">Pareto</button>
           </div>
         </div>
         <div class="charts-body">
@@ -138,17 +150,13 @@
           <div class="weather-progress">
             <div id="weatherProgressBar" class="weather-progress-bar"></div>
           </div>
+          <div id="paretoPanel" class="timeseries-container hidden">
+            <div id="paretoContainer" class="timeseries-container">
+              <p>No pareto data available.</p>
+            </div>
+            <p id="paretoStatus" class="pareto-status"></p>
+          </div>
         </div>
-      </section>
-
-      <section class="card pareto-card">
-        <div class="section-header">
-          <h2>Pareto front</h2>
-        </div>
-        <div id="paretoContainer" class="timeseries-container">
-          <p>No pareto data available.</p>
-        </div>
-        <p id="paretoStatus" class="pareto-status"></p>
       </section>
     </section>
   </main>

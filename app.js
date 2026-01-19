@@ -91,6 +91,8 @@ let resizeHandlerBound = false;
 let paretoChartInstance = null;
 let paretoChartNode = null;
 const EXCLUDED_ROUTE_TAGS = new Set(["best_tce", "min_fuel"]);
+const PREFERRED_ROUTE_TAGS = new Set(["foa", "best_time", "jita"]);
+const TIMESERIES_ROUTE_TAGS = new Set(["foa", "min_time", "best_dte"]);
 let selectedVoyageIds = new Set();
 let multiVoyageRequestId = 0;
 const routeTagVisibility = new Map();
@@ -143,10 +145,7 @@ function initMap() {
   map = L.map("map", {
     worldCopyJump: true,
     minZoom: MIN_MAP_ZOOM,
-    maxBoundsViscosity: 1.0,
   }).setView([20, 0], 2);
-  const worldBounds = L.latLngBounds([-85, -180], [85, 180]);
-  map.setMaxBounds(worldBounds);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18,
     minZoom: MIN_MAP_ZOOM,
@@ -450,32 +449,273 @@ function extractBracketTokens(text) {
 function updateVoyageList(items) {
   elements.voyageList.innerHTML = "";
   if (!items.length) {
-    const emptyItem = document.createElement("li");
+    const emptyItem = document.createElement("div");
+    emptyItem.className = "empty-state";
     emptyItem.textContent = "No voyages returned.";
     elements.voyageList.appendChild(emptyItem);
     return;
   }
-  items.forEach((voyage, index) => {
-    const button = document.createElement("button");
-    const voyageId = findIdValue(voyage, ["id", "voyageId", "voyageID"]);
-        const name = getVoyageLabel(voyage);
-    const status = voyage.status || voyage.state || "Unknown status";
-    const description =
+  const grouped = groupVoyagesByDescription(items);
+  grouped.forEach((group) => {
+    if (group.items.length === 1) {
+      const row = buildVoyageRow(group.items[0], group.description, "scenario-row");
+      elements.voyageList.appendChild(row);
+      return;
+    }
+    const container = document.createElement("div");
+    container.className = "scenario-group";
+
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "scenario-row scenario-group-row";
+    header.setAttribute("aria-expanded", "false");
+    header.appendChild(buildGroupDescriptionCell(group.description, group.items.length, false));
+    header.appendChild(buildScenarioCell(`${group.items.length} runs`, "scenario-meta"));
+    header.appendChild(buildScenarioCell(formatDateTime(group.latest.startTime)));
+    header.appendChild(buildScenarioCell(group.latest.vessel));
+    header.appendChild(buildScenarioCell(group.waveRange, "optional"));
+    header.appendChild(buildScenarioCell(formatDateTime(group.latest.lastUsed) || "--", "optional"));
+
+    const children = document.createElement("div");
+    children.className = "scenario-children hidden";
+    group.items.forEach((voyage) => {
+      const row = buildVoyageRow(voyage, group.description, "scenario-row scenario-child");
+      children.appendChild(row);
+    });
+
+    header.addEventListener("click", () => {
+      const expanded = header.getAttribute("aria-expanded") === "true";
+      header.setAttribute("aria-expanded", String(!expanded));
+      children.classList.toggle("hidden", expanded);
+      const toggle = header.querySelector(".group-toggle");
+      if (toggle) {
+        toggle.textContent = expanded ? "▸" : "▾";
+      }
+    });
+
+    container.appendChild(header);
+    container.appendChild(children);
+    elements.voyageList.appendChild(container);
+  });
+}
+
+function buildScenarioCell(value, className) {
+  const cell = document.createElement("span");
+  if (className) {
+    cell.className = className;
+  }
+  cell.textContent = String(value ?? "");
+  return cell;
+}
+
+function buildGroupDescriptionCell(description, count, expanded) {
+  const cell = document.createElement("span");
+  cell.className = "scenario-desc";
+  const wrapper = document.createElement("span");
+  wrapper.className = "group-label";
+  const toggle = document.createElement("span");
+  toggle.className = "group-toggle";
+  toggle.textContent = expanded ? "▾" : "▸";
+  const text = document.createElement("span");
+  text.textContent = `${description} (${count})`;
+  wrapper.appendChild(toggle);
+  wrapper.appendChild(text);
+  cell.appendChild(wrapper);
+  return cell;
+}
+
+function buildVoyageRow(voyage, descriptionOverride, className) {
+  const button = document.createElement("button");
+  const voyageId = findIdValue(voyage, ["id", "voyageId", "voyageID"]);
+  const status = voyage.status || voyage.state || "Unknown status";
+  const description =
+    descriptionOverride ||
+    voyage.description ||
+    voyage.summary ||
+    voyage.routeDescription ||
+    voyage.route?.description ||
+    "No description provided.";
+  const startTime = pickDateValue(voyage, [
+    "startTime",
+    "startDate",
+    "start",
+    "createdDate",
+    "creationDate",
+  ]);
+  const lastUsed = pickDateValue(voyage, ["lastUsed", "lastUsedDate", "updatedAt", "updatedDate"]);
+  const vessel = getVoyageLabel(voyage);
+  const maxWaveCruiseHeight = pickNestedValue(voyage, [
+    "options",
+    "constraints",
+    "maxWaveCruiseHeight",
+  ]);
+  const waveValue = Number.isFinite(maxWaveCruiseHeight)
+    ? formatNumber(maxWaveCruiseHeight)
+    : maxWaveCruiseHeight;
+  button.type = "button";
+  button.className = className;
+  button.appendChild(buildScenarioCell(description, "scenario-desc"));
+  button.appendChild(buildStatusPill(status));
+  button.appendChild(buildScenarioCell(formatDateTime(startTime)));
+  button.appendChild(buildScenarioCell(vessel));
+  button.appendChild(buildScenarioCell(waveValue ?? "--", "optional"));
+  button.appendChild(buildScenarioCell(formatDateTime(lastUsed) || "--", "optional"));
+  if (voyageId) {
+    button.dataset.voyageId = String(voyageId);
+    if (selectedVoyageIds.has(String(voyageId))) {
+      button.classList.add("active");
+    }
+  }
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleVoyageSelection(voyage);
+  });
+  return button;
+}
+
+function buildStatusPill(status) {
+  const pill = document.createElement("span");
+  pill.className = "status-pill";
+  const normalized = String(status || "Unknown").toLowerCase();
+  if (normalized.includes("completed")) {
+    pill.classList.add("status-complete");
+  } else if (normalized.includes("running")) {
+    pill.classList.add("status-running");
+  } else if (normalized.includes("failed")) {
+    pill.classList.add("status-failed");
+  }
+  pill.textContent = status || "Unknown";
+  return pill;
+}
+
+function pickDateValue(payload, keys) {
+  if (!payload || !Array.isArray(keys)) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = payload[key];
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function pickStringValue(payload, keys) {
+  if (!payload || !Array.isArray(keys)) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function pickNestedValue(payload, path) {
+  if (!payload || !Array.isArray(path)) {
+    return null;
+  }
+  let current = payload;
+  for (const key of path) {
+    if (!current || typeof current !== "object") {
+      return null;
+    }
+    current = current[key];
+  }
+  return current ?? null;
+}
+
+function groupVoyagesByDescription(items) {
+  const groups = new Map();
+  items.forEach((voyage) => {
+    const raw =
       voyage.description ||
       voyage.summary ||
       voyage.routeDescription ||
       voyage.route?.description ||
       "No description provided.";
-    button.innerHTML = `${name} ?? ${status}<span class="description">${description}</span>`;
-    if (voyageId) {
-      button.dataset.voyageId = String(voyageId);
-      if (selectedVoyageIds.has(String(voyageId))) {
-        button.classList.add("active");
-      }
+    const key = normalizeDescription(raw);
+    if (!groups.has(key)) {
+      groups.set(key, []);
     }
-    button.addEventListener("click", () => toggleVoyageSelection(voyage));
-    elements.voyageList.appendChild(button);
+    groups.get(key).push(voyage);
   });
+  const result = [];
+  groups.forEach((groupItems, description) => {
+    const sorted = [...groupItems].sort((a, b) => getLastUsedTime(b) - getLastUsedTime(a));
+    const latest = sorted[0];
+    const maxWaveValues = sorted
+      .map((item) =>
+        pickNestedValue(item, ["options", "constraints", "maxWaveCruiseHeight"])
+      )
+      .filter((value) => Number.isFinite(value));
+    const waveRange = formatWaveRange(maxWaveValues);
+    result.push({
+      description,
+      items: sorted,
+      latest: {
+        startTime: pickDateValue(latest, [
+          "startTime",
+          "startDate",
+          "start",
+          "createdDate",
+          "creationDate",
+        ]),
+        lastUsed: pickDateValue(latest, ["lastUsed", "lastUsedDate", "updatedAt", "updatedDate"]),
+        vessel: getVoyageLabel(latest),
+      },
+      waveRange,
+    });
+  });
+  return result.sort((a, b) => getLastUsedTime(a.items[0]) - getLastUsedTime(b.items[0])).reverse();
+}
+
+function normalizeDescription(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "No description provided.";
+  }
+  const uuidPattern =
+    /\\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\b/gi;
+  const cleaned = text.replace(uuidPattern, "").replace(/\\s+/g, " ").trim();
+  return cleaned || text;
+}
+
+function getLastUsedTime(voyage) {
+  const value = pickDateValue(voyage, ["lastUsedDate", "lastUsed", "updatedAt", "updatedDate"]);
+  const time = value ? Date.parse(value) : NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function formatWaveRange(values) {
+  if (!values.length) {
+    return "--";
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  if (min === max) {
+    return formatNumber(min);
+  }
+  return `${formatNumber(min)}–${formatNumber(max)}`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  const month = date.toLocaleString("en-US", { month: "short" });
+  const day = date.getDate();
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${month} ${day}, ${year} ${hours}:${minutes}`;
 }
 
 function toggleVoyageSelection(voyage) {
@@ -564,7 +804,7 @@ function selectSingleVoyage(voyage) {
       if (Array.isArray(computations) && computations.length) {
         const latest = pickLatestComputation(computations);
         if (latest) {
-          selectComputation(latest, 0);
+          selectComputation(latest);
         }
       }
     });
@@ -592,13 +832,14 @@ async function loadComputations(voyageId) {
 function updateComputationList(items) {
   elements.computationList.innerHTML = "";
   if (!items.length) {
-    const emptyItem = document.createElement("li");
+    const emptyItem = document.createElement("div");
+    emptyItem.className = "empty-state";
     emptyItem.textContent = "No computations returned.";
     elements.computationList.appendChild(emptyItem);
     updateComputationDetails(null);
     return;
   }
-  items.forEach((computation, index) => {
+  items.forEach((computation) => {
     const button = document.createElement("button");
     const computationId = findIdValue(computation, [
       "id",
@@ -608,17 +849,23 @@ function updateComputationList(items) {
     ]);
     const name = computation.name || computation.title || computationId || `Computation ${index + 1}`;
     const status = computation.status || computation.state || "Unknown status";
-    button.textContent = `${name} · ${status}`;
-    button.addEventListener("click", () => selectComputation(computation, index));
+    button.type = "button";
+    button.className = "computation-row";
+    if (computationId !== null && computationId !== undefined) {
+      button.dataset.computationId = String(computationId);
+    }
+    const title = document.createElement("span");
+    title.className = "computation-title";
+    title.textContent = String(name);
+    button.appendChild(title);
+    button.appendChild(buildStatusPill(status));
+    button.addEventListener("click", () => selectComputation(computation));
     elements.computationList.appendChild(button);
   });
 }
 
-async function selectComputation(computation, index) {
+async function selectComputation(computation) {
   const buttons = elements.computationList.querySelectorAll("button");
-  buttons.forEach((button, idx) => {
-    button.classList.toggle("active", idx === index);
-  });
   updateComputationDetails(computation);
   selectedComputationId = findIdValue(computation, [
     "id",
@@ -626,6 +873,10 @@ async function selectComputation(computation, index) {
     "computationID",
     "computation",
   ]);
+  buttons.forEach((button) => {
+    const id = button.dataset.computationId;
+    button.classList.toggle("active", id && id === String(selectedComputationId));
+  });
   updateSelectedIds(selectedVoyageId, selectedComputationId);
   currentParetoComputationId = null;
   renderPareto(null);
@@ -866,7 +1117,7 @@ function extractRouteFeaturePoints(voyage) {
   return routes
     .map((route, index) => {
       const tag = route?.tag || `route-${index + 1}`;
-      if (isRouteExcluded(tag)) {
+      if (isRouteExcluded(tag) || !isTimeseriesRouteTag(tag)) {
         return null;
       }
       const features = route?.features || {};
@@ -2012,13 +2263,14 @@ function bindChartTabs() {
   const tabs = document.querySelectorAll(".tab-button");
   const weatherContainer = document.getElementById("weatherTimeseriesContainer");
   const weatherActions = document.getElementById("weatherActions");
+  const paretoPanel = document.getElementById("paretoPanel");
   if (!tabs.length) {
     return;
   }
   const setActive = (tab) => {
     tabs.forEach((btn) => btn.classList.toggle("active", btn === tab));
     const key = tab.dataset.tab;
-    applyChartTabFilter(key, weatherContainer, weatherActions);
+    applyChartTabFilter(key, weatherContainer, weatherActions, paretoPanel);
   };
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => setActive(tab));
@@ -2026,7 +2278,7 @@ function bindChartTabs() {
   setActive(tabs[0]);
 }
 
-function applyChartTabFilter(tabKey, weatherContainer, weatherActions) {
+function applyChartTabFilter(tabKey, weatherContainer, weatherActions, paretoPanel) {
   const cards = document.querySelectorAll(".series-card");
   cards.forEach((card) => {
     const metric = card.dataset.metric;
@@ -2039,6 +2291,8 @@ function applyChartTabFilter(tabKey, weatherContainer, weatherActions) {
       visible = metric === "fuel";
     } else if (tabKey === "weather") {
       visible = false;
+    } else if (tabKey === "pareto") {
+      visible = false;
     }
     card.classList.toggle("hidden", !visible);
   });
@@ -2047,6 +2301,18 @@ function applyChartTabFilter(tabKey, weatherContainer, weatherActions) {
   }
   if (weatherActions) {
     weatherActions.classList.toggle("hidden", tabKey !== "weather");
+  }
+  if (paretoPanel) {
+    paretoPanel.classList.toggle("hidden", tabKey !== "pareto");
+  }
+  if (tabKey === "pareto") {
+    setTimeout(() => {
+      if (paretoChartInstance) {
+        paretoChartInstance.resize();
+      } else {
+        initParetoChart();
+      }
+    }, 50);
   }
 }
 function buildEchartOption(payload) {
@@ -2280,7 +2546,48 @@ function isRouteExcluded(tag) {
     return false;
   }
   const normalized = String(tag).trim().toLowerCase();
-  return EXCLUDED_ROUTE_TAGS.has(normalized);
+  return matchesTagSet(normalized, EXCLUDED_ROUTE_TAGS);
+}
+
+function isPreferredRouteTag(tag) {
+  if (!tag) {
+    return false;
+  }
+  const normalized = String(tag).trim().toLowerCase();
+  return matchesTagSet(normalized, PREFERRED_ROUTE_TAGS);
+}
+
+function isTimeseriesRouteTag(tag) {
+  if (!tag) {
+    return false;
+  }
+  const normalized = String(tag).trim().toLowerCase();
+  return matchesTagSet(normalized, TIMESERIES_ROUTE_TAGS);
+}
+
+function matchesTagSet(normalizedTag, tagSet) {
+  if (!normalizedTag || !tagSet || !tagSet.size) {
+    return false;
+  }
+  for (const token of tagSet) {
+    if (matchesTagToken(normalizedTag, token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function matchesTagToken(normalizedTag, token) {
+  if (!normalizedTag || !token) {
+    return false;
+  }
+  const escaped = escapeRegExp(String(token).toLowerCase());
+  const regex = new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`);
+  return regex.test(normalizedTag);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
 }
 
 function addRoutePointMarkers(layer, segment, shifts = [0]) {
@@ -2405,55 +2712,99 @@ function updateRouteFilters(routeData) {
     routeTagVisibility.clear();
     return;
   }
-  const tags = buildRouteTagList(routeData);
+  const rows = buildRouteSelectionRows(routeData);
   const next = new Map();
-  tags.forEach((tag) => {
-    next.set(tag, routeTagVisibility.has(tag) ? routeTagVisibility.get(tag) : true);
+  rows.forEach((row) => {
+    next.set(row.tag, routeTagVisibility.has(row.tag) ? routeTagVisibility.get(row.tag) : true);
   });
   routeTagVisibility.clear();
   next.forEach((value, key) => routeTagVisibility.set(key, value));
-  renderRouteFilterControls(tags);
+  renderRouteFilterControls(rows);
 }
 
-function renderRouteFilterControls(tags) {
+function renderRouteFilterControls(rows) {
   if (!elements.routeFilters) {
     return;
   }
   elements.routeFilters.innerHTML = "";
-  if (!tags.length) {
+  if (!rows.length) {
     elements.routeFilters.textContent = "No routes available.";
     return;
   }
-  tags.forEach((tag) => {
-    const label = document.createElement("label");
-    label.className = "route-filter";
+  const table = document.createElement("div");
+  table.className = "route-table";
+  const header = document.createElement("div");
+  header.className = "route-row route-header";
+  header.innerHTML = `
+    <span></span>
+    <span>Description</span>
+    <span>Max service speed</span>
+    <span>Min service speed</span>
+    <span>Max cruise speed</span>
+    <span>Min cruise speed</span>
+    <span>Max service power</span>
+    <span>Min service power</span>
+    <span>Max service RPM</span>
+    <span>Min service RPM</span>
+    <span>Vessel draft</span>
+  `;
+  table.appendChild(header);
+  rows.forEach((row) => {
+    const line = document.createElement("div");
+    line.className = "route-row";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = routeTagVisibility.get(tag) !== false;
+    input.checked = routeTagVisibility.get(row.tag) !== false;
     input.addEventListener("change", () => {
-      routeTagVisibility.set(tag, input.checked);
+      routeTagVisibility.set(row.tag, input.checked);
       renderBaseRoute(baseRouteData);
       renderSolutionRoute(solutionRouteData);
     });
-    const span = document.createElement("span");
-    span.textContent = tag;
-    label.appendChild(input);
-    label.appendChild(span);
-    elements.routeFilters.appendChild(label);
+    const checkboxCell = document.createElement("span");
+    checkboxCell.appendChild(input);
+    const descriptionCell = document.createElement("span");
+    descriptionCell.className = "route-description";
+    descriptionCell.textContent = row.description;
+    line.appendChild(checkboxCell);
+    line.appendChild(descriptionCell);
+    line.appendChild(buildRouteCell(row.maxServiceSpeed));
+    line.appendChild(buildRouteCell(row.minServiceSpeed));
+    line.appendChild(buildRouteCell(row.maxCruiseSpeed));
+    line.appendChild(buildRouteCell(row.minCruiseSpeed));
+    line.appendChild(buildRouteCell(row.maxServicePower));
+    line.appendChild(buildRouteCell(row.minServicePower));
+    line.appendChild(buildRouteCell(row.maxServiceRpm));
+    line.appendChild(buildRouteCell(row.minServiceRpm));
+    line.appendChild(buildRouteCell(row.vesselDraft));
+    table.appendChild(line);
   });
+  elements.routeFilters.appendChild(table);
 }
 
-function buildRouteTagList(routeData) {
+function buildRouteSelectionRows(routeData) {
   const routes = getRoutesArray(routeData);
-  const tags = [];
-  routes.forEach((route, index) => {
-    const rawPoints = route?.data || route?.points || [];
-    const tag = route?.tag || rawPoints.find((point) => point?.tag)?.tag || `route-${index + 1}`;
-    if (!isRouteExcluded(tag)) {
-      tags.push(String(tag));
-    }
-  });
-  return Array.from(new Set(tags));
+  return routes
+    .map((route, index) => {
+      const rawPoints = route?.data || route?.points || [];
+      const tag = route?.tag || rawPoints.find((point) => point?.tag)?.tag || `route-${index + 1}`;
+      if (isRouteExcluded(tag) || !isPreferredRouteTag(tag)) {
+        return null;
+      }
+      return {
+        tag: String(tag),
+        description: buildRouteDescription(route, tag),
+        maxServiceSpeed: pickRouteValue(route, "maxServiceSpeed"),
+        minServiceSpeed: pickRouteValue(route, "minServiceSpeed"),
+        maxCruiseSpeed: pickRouteValue(route, "maxCruiseSpeed"),
+        minCruiseSpeed: pickRouteValue(route, "minCruiseSpeed"),
+        maxServicePower: pickRouteValue(route, "maxServicePower"),
+        minServicePower: pickRouteValue(route, "minServicePower"),
+        maxServiceRpm: pickRouteValue(route, "maxServiceRpm"),
+        minServiceRpm: pickRouteValue(route, "minServiceRpm"),
+        vesselDraft: pickRouteValue(route, "vesselDraft"),
+      };
+    })
+    .filter(Boolean);
 }
 
 function isRouteTagVisible(tag) {
@@ -2464,6 +2815,51 @@ function isRouteTagVisible(tag) {
     return true;
   }
   return routeTagVisibility.get(tag) !== false;
+}
+
+function buildRouteDescription(route, fallbackTag) {
+  const description =
+    route?.description ||
+    route?.name ||
+    route?.label ||
+    route?.metadata?.description ||
+    route?.summary;
+  return String(description || fallbackTag || "Route");
+}
+
+function pickRouteValue(route, key) {
+  if (!route || !key) {
+    return null;
+  }
+  const candidates = [
+    route,
+    route.options,
+    route.parameters,
+    route.config,
+    route.metadata,
+    route.features,
+  ];
+  for (const candidate of candidates) {
+    if (candidate && Object.prototype.hasOwnProperty.call(candidate, key)) {
+      return candidate[key];
+    }
+  }
+  return null;
+}
+
+function buildRouteCell(value) {
+  const cell = document.createElement("span");
+  if (value === null || value === undefined || value === "") {
+    cell.textContent = "--";
+    cell.className = "route-muted";
+    return cell;
+  }
+  if (typeof value === "number") {
+    cell.textContent = formatNumber(value);
+    return cell;
+  }
+  cell.textContent = String(value);
+  return cell;
 }
 function setLoading(button, isLoading) {
   if (!button) {
